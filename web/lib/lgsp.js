@@ -125,14 +125,16 @@ const PUBLIC_URL = (process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL ||
 let webhookCreating = null;
 
 async function ensureCallback(settings, log) {
-  if (settings.callback_url) {
-    const m = settings.callback_url.match(/^https:\/\/webhook\.site\/([0-9a-f-]{36})/i);
-    if (m && !settings.webhook_token) settings.webhook_token = m[1];
-    return;
-  }
-  if (PUBLIC_URL) {
+  const webhookMatch = (settings.callback_url || '').match(/^https:\/\/webhook\.site\/([0-9a-f-]{36})/i);
+  // Có địa chỉ public thì ưu tiên nhận callback trực tiếp, kể cả khi CSDL còn lưu URL webhook.site
+  // do bản chạy trên máy tạo ra; chỉ giữ Callback URL khi người dùng tự đặt một địa chỉ khác.
+  if (PUBLIC_URL && (!settings.callback_url || webhookMatch)) {
     settings.callback_url = `${PUBLIC_URL}/callback`;
     settings.webhook_token = '';
+    return;
+  }
+  if (settings.callback_url) {
+    if (webhookMatch && !settings.webhook_token) settings.webhook_token = webhookMatch[1];
     return;
   }
   if (!webhookCreating) {

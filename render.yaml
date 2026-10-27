@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: tool-csdl
+    runtime: docker
+    region: singapore
+    plan: starter
+    healthCheckPath: /healthz
+    envVars:
+      - key: MONGODB_URI
+        sync: false
+      - key: APP_USERNAME
+        sync: false
+      - key: APP_PASSWORD
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true

@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Truy vấn dữ liệu LGSP</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">DB</div>
+      <div>
+        <h1>Truy vấn dữ liệu LGSP</h1>
+        <p>Nền tảng tích hợp, chia sẻ dữ liệu thành phố Đà Nẵng</p>
+      </div>
+    </div>
+    <nav class="tabs">
+      <button class="tab active" data-tab="query">Truy vấn</button>
+      <button class="tab" data-tab="history">Lịch sử</button>
+      <button class="tab" data-tab="config">Cấu hình</button>
+      <button class="tab hidden" id="btn-logout">Đăng xuất</button>
+    </nav>
+  </header>
+
+  <!-- ============ TRUY VẤN ============ -->
+  <main id="tab-query" class="tab-page layout">
+    <aside class="sidebar">
+      <section class="card">
+        <div class="card-head">
+          <h2><span class="step">1</span>Danh mục truy vấn</h2>
+          <div class="mini-actions">
+            <button class="link" id="cat-all">Tất cả</button>
+            <button class="link" id="cat-none">Bỏ chọn</button>
+          </div>
+        </div>
+        <input type="search" id="cat-search" class="input" placeholder="Tìm mục (vd: văn bản, lịch, karaoke...)">
+        <div id="catalog" class="catalog"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head">
+          <h2><span class="step">2</span>Xã / phường</h2>
+          <div class="mini-actions">
+            <button class="link" id="xa-all">Tất cả</button>
+            <button class="link" id="xa-none">Bỏ chọn</button>
+          </div>
+        </div>
+        <div id="xa-list" class="checklist"></div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2><span class="step">3</span>Khoảng thời gian</h2></div>
+        <div class="date-row">
+          <label>Từ ngày<input type="date" id="from" class="input"></label>
+          <label>Đến ngày<input type="date" id="to" class="input"></label>
+        </div>
+        <div class="chips" id="presets">
+          <button class="chip" data-preset="today">Hôm nay</button>
+          <button class="chip" data-preset="7">7 ngày</button>
+          <button class="chip" data-preset="30">30 ngày</button>
+          <button class="chip" data-preset="month">Tháng này</button>
+          <button class="chip" data-preset="lastmonth">Tháng trước</button>
+          <button class="chip" data-preset="year">Năm nay</button>
+        </div>
+        <p class="hint">Chỉ áp dụng cho mục có lọc ngày (Văn bản đến/đi, Lịch, Góp ý, Việc VPUB). QLVBDH tự chia thành từng đoạn 7 ngày.</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><h2><span class="step">4</span>Tùy chọn</h2></div>
+        <label class="check"><input type="checkbox" id="opt-autosave" checked> Tự động lưu file CSV + JSON sau mỗi truy vấn</label>
+        <label class="check"><input type="checkbox" id="opt-autoexcel"> Tự động xuất Excel tổng hợp khi chạy xong</label>
+        <label class="check inline"><input type="checkbox" id="opt-schedule"> Tự động truy vấn lại mỗi
+          <input type="number" id="opt-interval" class="input num" min="1" value="60"> phút</label>
+        <label class="inline">Số luồng song song
+          <input type="number" id="opt-concurrency" class="input num" min="1" max="8" value="3"></label>
+        <p class="hint" id="schedule-info"></p>
+      </section>
+
+      <div class="run-bar">
+        <button id="btn-run" class="btn primary big">▶ Truy vấn</button>
+        <button id="btn-stop" class="btn danger big" disabled>■ Dừng</button>
+      </div>
+    </aside>
+
+    <section class="content">
+      <div class="stats-cards">
+        <div class="stat"><span class="stat-label">Tác vụ</span><span class="stat-value" id="s-tasks">0</span><span class="stat-sub" id="s-tasks-sub">đã chọn</span></div>
+        <div class="stat ok"><span class="stat-label">Thành công</span><span class="stat-value" id="s-ok">0</span><span class="stat-sub">mục</span></div>
+        <div class="stat err"><span class="stat-label">Lỗi</span><span class="stat-value" id="s-err">0</span><span class="stat-sub">mục</span></div>
+        <div class="stat accent"><span class="stat-label">Tổng bản ghi</span><span class="stat-value" id="s-rows">0</span><span class="stat-sub">đã truy vấn được</span></div>
+        <div class="stat"><span class="stat-label">Thời gian</span><span class="stat-value" id="s-time">–</span><span class="stat-sub" id="s-time-sub">lần chạy gần nhất</span></div>
+      </div>
+      <div class="progress"><div class="progress-bar" id="progress-bar"></div><span id="progress-text"></span></div>
+
+      <section class="card">
+        <div class="table-toolbar">
+          <h2>Bảng thông số truy vấn</h2>
+          <div class="toolbar-right">
+            <div class="seg" id="view-toggle">
+              <button class="seg-btn active" data-view="list">Danh sách</button>
+              <button class="seg-btn" data-view="matrix">Ma trận xã × mục</button>
+            </div>
+            <select id="status-filter" class="input">
+              <option value="">Tất cả trạng thái</option>
+              <option value="ok">Thành công</option>
+              <option value="error">Lỗi</option>
+              <option value="pending">Chưa chạy / đang chờ</option>
+            </select>
+            <label class="check small"><input type="checkbox" id="only-selected" checked> Chỉ mục đang chọn</label>
+            <button class="btn" id="btn-excel-stats">⤓ Excel thống kê</button>
+            <button class="btn primary" id="btn-excel-all">⤓ Excel toàn bộ dữ liệu</button>
+          </div>
+        </div>
+        <div class="table-wrap" id="stats-wrap"></div>
+      </section>
+
+      <section class="card">
+        <div class="table-toolbar">
+          <h2>Nhật ký</h2>
+          <button class="link" id="log-clear">Xóa</button>
+        </div>
+        <pre id="log" class="log"></pre>
+      </section>
+    </section>
+  </main>
+
+  <!-- ============ LỊCH SỬ ============ -->
+  <main id="tab-history" class="tab-page hidden">
+    <section class="card">
+      <div class="table-toolbar">
+        <h2>Lịch sử truy vấn</h2>
+        <div class="toolbar-right">
+          <input type="search" id="hist-search" class="input" placeholder="Lọc theo xã, mục, lỗi...">
+          <button class="btn" id="hist-refresh">↻ Tải lại</button>
+          <button class="btn" id="hist-excel">⤓ Xuất Excel</button>
+        </div>
+      </div>
+      <div class="table-wrap" id="hist-wrap"></div>
+    </section>
+  </main>
+
+  <!-- ============ CẤU HÌNH ============ -->
+  <main id="tab-config" class="tab-page hidden">
+    <section class="card">
+      <div class="table-toolbar">
+        <h2>Cấu hình chung</h2>
+        <button class="btn primary" id="cfg-save">💾 Lưu cấu hình</button>
+      </div>
+      <div class="form-grid" id="cfg-settings"></div>
+      <details class="advanced">
+        <summary>Địa chỉ API (nâng cao)</summary>
+        <div class="form-grid" id="cfg-bases"></div>
+      </details>
+      <p class="hint">
+        QLVBDH chỉ trả jobId qua <b>callback</b>. Để trống Callback URL thì công cụ tự tạo một địa chỉ webhook.site và tự đọc jobId.
+        Nếu máy chủ này được public ra Internet, có thể đặt Callback URL = <code>https://&lt;địa-chỉ&gt;/callback</code>.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="table-toolbar">
+        <h2>Danh sách xã / phường</h2>
+        <button class="btn" id="cfg-add">＋ Thêm xã</button>
+      </div>
+      <div id="cfg-xa" class="xa-cards"></div>
+    </section>
+  </main>
+
+  <!-- ============ XEM DỮ LIỆU ============ -->
+  <div class="modal hidden" id="viewer">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div>
+          <h2 id="v-title"></h2>
+          <p class="hint" id="v-sub"></p>
+        </div>
+        <button class="icon-btn" id="v-close" title="Đóng">✕</button>
+      </div>
+      <div class="table-toolbar">
+        <input type="search" id="v-search" class="input" placeholder="Tìm trong dữ liệu...">
+        <div class="toolbar-right">
+          <a class="btn" id="v-csv">⤓ CSV</a>
+          <a class="btn" id="v-json">⤓ JSON</a>
+          <button class="btn primary" id="v-excel">⤓ Excel</button>
+        </div>
+      </div>
+      <div class="table-wrap tall" id="v-wrap"></div>
+      <div class="modal-foot"><span id="v-count"></span><button class="btn" id="v-more">Tải thêm</button></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+</body>
+</html>

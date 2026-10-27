@@ -1,0 +1,17 @@
+# Repo để PUBLIC: chỉ đưa mã nguồn web lên. Mọi thứ khác bị chặn mặc định
+# (file Postman environment và tài liệu có khóa / mật khẩu LGSP).
+/*
+!/.gitignore
+!/.dockerignore
+!/Dockerfile
+!/render.yaml
+!/README.md
+!/web/
+
+# Dữ liệu và bí mật bên trong web/
+web/config/
+web/data/
+web/exports/
+node_modules/
+.env
+*.log

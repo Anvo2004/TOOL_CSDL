@@ -1,0 +1,17 @@
+{
+  "name": "tool-csdl",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Công cụ truy vấn dữ liệu LGSP Đà Nẵng",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "seed-mongo": "node scripts/seed-mongo.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mongodb": "^6.21.0"
+  }
+}

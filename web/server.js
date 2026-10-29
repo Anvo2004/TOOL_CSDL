@@ -109,14 +109,20 @@ function findXa(cfg, xaId) {
 
 // ---------- Truy vấn ----------
 async function handleQuery(req, res) {
-  const { xaId, itemKey, from, to, autoSave } = await readJson(req);
+  const { xaId, itemKey, from, to, autoSave, guard } = await readJson(req);
   const cfg = await store.loadConfig();
   const xa = findXa(cfg, xaId);
   const item = ITEMS.get(itemKey);
   if (!item) return send(res, 404, { error: `Không có mục ${itemKey}` });
 
+  // Chạy lặp: không bắt đầu tác vụ nếu không đủ lượt trong giới hạn tự đặt, để không bị LGSP khóa giữa chừng.
+  if (guard) {
+    const days = item.dated && from && to ? Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 : 1;
+    const reason = usage.skipReason(cfg.settings, xa, item.category.id, sync.estimateCost(item, days));
+    if (reason) return send(res, 200, { xaId, itemKey, ok: false, skipped: true, count: 0, calls: 0, error: reason, warnings: [], logs: [] });
+  }
   const logs = [];
-  const entry = await sync.executeTask({ settings: cfg.settings, xa, item, from, to, autoSave, log: (m) => logs.push(m) });
+  const entry = await sync.executeTask({ settings: cfg.settings, xa, item, from, to, autoSave, source: guard ? 'runner' : 'manual', log: (m) => logs.push(m) });
   send(res, 200, { ...entry, logs });
 }
 

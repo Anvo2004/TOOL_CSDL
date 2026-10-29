@@ -24,6 +24,7 @@ Sau đó mở http://localhost:3000. Trên Windows có thể bấm đúp `start.
 - **Xem**: mở dữ liệu chi tiết, tìm kiếm, tải CSV/JSON/Excel.
 - **Excel toàn bộ dữ liệu**: một file gồm sheet "Thong ke" và mỗi mục một sheet.
 - **Tự động lưu file**: sau mỗi truy vấn thành công, lưu CSV và JSON vào `exports/<ngày>/`.
+- **Chạy lặp N vòng, nghỉ X giây giữa các request** (giống Runner của Postman): có bảng kết quả từng vòng, xuất Excel. Khi chạy lặp, tác vụ chỉ chạy nếu còn đủ lượt trong giới hạn mỗi ngày (tab Tự động & hạn mức), hết lượt thì tự dừng nên không bị LGSP khóa.
 - **Tự động truy vấn lại mỗi N phút**: chạy lại theo chu kỳ trong lúc trang còn mở, khoảng ngày nhanh (7 ngày, tháng này...) sẽ được tính lại mỗi lần.
 - Tab **Lịch sử** ghi lại mọi lần chạy (`data/history.jsonl`).
 

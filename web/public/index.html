@@ -77,6 +77,14 @@
           <input type="number" id="opt-interval" class="input num" min="1" value="60"> phút</label>
         <label class="inline">Số luồng song song
           <input type="number" id="opt-concurrency" class="input num" min="1" max="8" value="3"></label>
+        <div class="runner-opts">
+          <label class="inline">Chạy lặp
+            <input type="number" id="opt-iter" class="input num" min="1" max="1000" value="1"> vòng</label>
+          <label class="inline">Nghỉ giữa các request
+            <input type="number" id="opt-delay" class="input num" min="0" max="3600" step="0.5" value="0"> giây</label>
+          <p class="hint">Giống Runner của Postman. Khi chạy lặp (hơn 1 vòng hoặc có nghỉ), mỗi tác vụ chỉ chạy nếu còn đủ lượt trong
+            giới hạn mỗi ngày ở tab <b>Tự động &amp; hạn mức</b>, nên không bị LGSP khóa (429). Hết lượt thì tự dừng.</p>
+        </div>
         <p class="hint" id="schedule-info"></p>
       </section>
 
@@ -95,6 +103,18 @@
         <div class="stat"><span class="stat-label">Thời gian</span><span class="stat-value" id="s-time">–</span><span class="stat-sub" id="s-time-sub">lần chạy gần nhất</span></div>
       </div>
       <div class="progress"><div class="progress-bar" id="progress-bar"></div><span id="progress-text"></span></div>
+
+      <section class="card hidden" id="iter-card">
+        <div class="table-toolbar">
+          <h2>Kết quả chạy lặp</h2>
+          <div class="toolbar-right">
+            <span class="hint" id="iter-sum"></span>
+            <button class="btn" id="iter-excel">⤓ Excel</button>
+            <button class="link" id="iter-hide">Ẩn</button>
+          </div>
+        </div>
+        <div class="table-wrap" id="iter-wrap"></div>
+      </section>
 
       <section class="card">
         <div class="table-toolbar">

@@ -207,6 +207,8 @@ fieldset.plain legend { font-size: 12px; font-weight: 600; color: var(--primary)
 .meter.warn > span { background: var(--warn); }
 .meter.full > span { background: var(--err); }
 .st-skipped { background: #eef1f6; color: var(--muted); }
+.runner-opts { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 4px; }
+.matrix td.cell.skipped { background: #eef1f6; color: var(--muted); }
 .ok-text { color: var(--ok); }
 .err-text { color: var(--err); }
 details.run-detail summary { cursor: pointer; color: var(--primary); font-size: 12px; }

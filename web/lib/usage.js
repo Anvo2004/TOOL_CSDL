@@ -75,12 +75,12 @@ function skipReason(settings, xa, sys, cost) {
   return null;
 }
 
-// Gọi ngay trước mỗi lượt gọi API: chặn khi đang bị LGSP khóa, hoặc khi đồng bộ tự động đã dùng hết giới hạn.
+// Gọi ngay trước mỗi lượt gọi API: chặn khi đang bị LGSP khóa, hoặc khi đồng bộ tự động / chạy lặp đã dùng hết giới hạn.
 function before(settings, xa, sys) {
   const b = blockedUntil(xa.id, sys);
   if (b) throw Object.assign(new Error(`LGSP đang khóa ${sysName(sys)} của xã do hết hạn mức, gọi lại được sau ${fmtVN(b)} (không gửi yêu cầu để khỏi tốn lượt)`), { status: 429 });
   const m = meter.getStore();
-  if (m && m.auto) {
+  if (m && m.limited) {
     const { limit } = limitFor(settings, xa.id, sys);
     if (used(counts(xa.id, sys)) >= limit) throw new Error(`Đã dùng hết giới hạn tự đặt ${limit} lượt/ngày cho ${sysName(sys)}, dừng để không bị khóa`);
   }

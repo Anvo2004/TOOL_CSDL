@@ -12,7 +12,7 @@ const fmtTime = (t) => (t ? new Date(t).toLocaleString('vi-VN', { hour12: false 
 const taskKey = (xaId, itemKey) => `${xaId}|${itemKey}`;
 
 const STATUS_LABEL = { ok: 'Thành công', error: 'Lỗi', running: 'Đang chạy', queued: 'Đang chờ', pending: 'Chưa chạy', skipped: 'Bỏ qua' };
-const SOURCE_LABEL = { manual: 'Thủ công', auto: 'Tự động' };
+const SOURCE_LABEL = { manual: 'Thủ công', auto: 'Tự động', runner: 'Chạy lặp' };
 
 const S = {
   catalog: [],
@@ -43,6 +43,7 @@ function savePrefs() {
       items: [...S.selItems], xa: [...S.selXa], from: $('#from').value, to: $('#to').value, preset: S.preset,
       autosave: $('#opt-autosave').checked, autoexcel: $('#opt-autoexcel').checked,
       interval: $('#opt-interval').value, concurrency: $('#opt-concurrency').value, view: S.view,
+      iter: $('#opt-iter').value, delay: $('#opt-delay').value,
     }));
   } catch { /* trình duyệt chặn lưu trữ: bỏ qua */ }
 }
@@ -107,6 +108,8 @@ async function init() {
   $('#opt-autoexcel').checked = !!prefs.autoexcel;
   $('#opt-interval').value = prefs.interval || 60;
   $('#opt-concurrency').value = prefs.concurrency || 3;
+  $('#opt-iter').value = prefs.iter || 1;
+  $('#opt-delay').value = prefs.delay || 0;
   S.view = prefs.view || 'list';
   $$('#view-toggle .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.view === S.view));
   S.preset = prefs.preset ?? '7';
@@ -176,7 +179,10 @@ function selectedPairs() {
 
 function updateRunButton() {
   const n = selectedPairs().length;
-  $('#btn-run').textContent = S.running ? `⏳ Đang truy vấn...` : `▶ Truy vấn (${n} tác vụ)`;
+  const iter = Math.max(1, Math.round(Number($('#opt-iter').value) || 1));
+  $('#btn-run').textContent = S.running
+    ? (S.run && S.run.iterations > 1 ? `⏳ Vòng ${S.run.iter}/${S.run.iterations}...` : '⏳ Đang truy vấn...')
+    : `▶ Truy vấn (${n} tác vụ${iter > 1 ? ` × ${iter} vòng` : ''})`;
   $('#btn-run').disabled = S.running || n === 0;
   $('#btn-stop').disabled = !S.running;
 }
@@ -204,41 +210,75 @@ async function runTasks(keys, { scheduled = false } = {}) {
   if (!from || !to || from > to) return toast('Khoảng thời gian không hợp lệ');
   const concurrency = Math.min(8, Math.max(1, Number($('#opt-concurrency').value) || 3));
   const autoSave = $('#opt-autosave').checked;
+  // Chạy lặp giống Postman Runner: N vòng, nghỉ X giây sau mỗi request; khi đó máy chủ giữ giới hạn lượt gọi.
+  const iterations = Math.min(1000, Math.max(1, Math.round(Number($('#opt-iter').value) || 1)));
+  const delayMs = Math.min(3600, Math.max(0, Number($('#opt-delay').value) || 0)) * 1000;
+  const guard = iterations > 1 || delayMs > 0;
 
   S.running = true;
   S.stopRequested = false;
-  S.run = { start: Date.now(), end: null, total: keys.length, done: 0 };
-  const prev = new Map();
-  for (const k of keys) {
-    prev.set(k, S.tasks.get(k));
-    const [xaId, itemKey] = k.split('|');
-    S.tasks.set(k, { ...(S.tasks.get(k) || {}), xaId, itemKey, status: 'queued' });
+  S.run = { start: Date.now(), end: null, total: keys.length * iterations, done: 0, iter: 0, iterations };
+  const prev = new Map(keys.map((k) => [k, S.tasks.get(k)]));
+  if (guard) {
+    S.iters = [];
+    $('#iter-card').classList.remove('hidden');
   }
   updateRunButton();
-  renderStats();
-  log(`${scheduled ? '[Tự động] ' : ''}Bắt đầu ${keys.length} tác vụ, ${concurrency} luồng, ${viDate(from)} – ${viDate(to)}`, 'l-info');
+  log(`${scheduled ? '[Tự động] ' : ''}Bắt đầu ${keys.length} tác vụ${iterations > 1 ? ` × ${iterations} vòng` : ''}, ${concurrency} luồng${delayMs ? `, nghỉ ${delayMs / 1000}s mỗi request` : ''}, ${viDate(from)} – ${viDate(to)}`, 'l-info');
 
-  const queue = [...keys];
-  const worker = async () => {
-    while (queue.length && !S.stopRequested) {
-      const k = queue.shift();
-      await runOne(k, { from, to, autoSave }, prev.get(k));
-      S.run.done++;
-      renderStats();
+  const total = { ok: 0, error: 0, skipped: 0, rows: 0, calls: 0 };
+  for (let it = 1; it <= iterations && !S.stopRequested; it++) {
+    S.run.iter = it;
+    for (const k of keys) {
+      const [xaId, itemKey] = k.split('|');
+      S.tasks.set(k, { ...(S.tasks.get(k) || {}), xaId, itemKey, status: 'queued' });
     }
-  };
-  await Promise.all(Array.from({ length: Math.min(concurrency, keys.length) }, worker));
+    const sum = { it, start: Date.now(), end: null, ok: 0, error: 0, skipped: 0, rows: 0, calls: 0 };
+    if (guard) S.iters.push(sum);
+    renderStats();
+    renderIters();
 
-  for (const k of queue) restore(k, prev.get(k));
+    const queue = [...keys];
+    const worker = async () => {
+      while (queue.length && !S.stopRequested) {
+        const k = queue.shift();
+        const t = await runOne(k, { from, to, autoSave, guard }, prev.get(k));
+        S.run.done++;
+        if (t) {
+          sum[t.status] = (sum[t.status] || 0) + 1;
+          sum.rows += t.status === 'ok' ? t.count || 0 : 0;
+          sum.calls += t.calls || 0;
+        }
+        renderStats();
+        renderIters();
+        if (delayMs && (queue.length || it < iterations)) await pause(delayMs);
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(concurrency, keys.length) }, worker));
+    for (const k of queue) restore(k, prev.get(k));
+    sum.end = Date.now();
+    for (const f of Object.keys(total)) total[f] += sum[f];
+    renderIters();
+    if (iterations > 1) log(`Vòng ${it}/${iterations}: ${sum.ok} thành công, ${sum.error} lỗi, ${sum.skipped} bỏ qua, ${fmtNum(sum.rows)} bản ghi, ${sum.calls} lượt gọi API`, 'l-info');
+    if (guard && sum.skipped === keys.length) {
+      log('Mọi tác vụ đã chạm giới hạn lượt gọi hôm nay, dừng chạy lặp để không bị LGSP khóa.', 'l-err');
+      break;
+    }
+  }
+
   S.run.end = Date.now();
   S.running = false;
   updateRunButton();
   renderStats();
-  const done = keys.map((k) => S.tasks.get(k)).filter((t) => t && (t.status === 'ok' || t.status === 'error'));
-  const ok = done.filter((t) => t.status === 'ok');
-  log(`${S.stopRequested ? 'Đã dừng' : 'Hoàn tất'}: ${ok.length} thành công, ${done.length - ok.length} lỗi, ${fmtNum(ok.reduce((s, t) => s + t.count, 0))} bản ghi, ${fmtDur(S.run.end - S.run.start)}`, 'l-info');
+  log(`${S.stopRequested ? 'Đã dừng' : 'Hoàn tất'}: ${total.ok} thành công, ${total.error} lỗi${total.skipped ? `, ${total.skipped} bỏ qua` : ''}, ${fmtNum(total.rows)} bản ghi, ${fmtNum(total.calls)} lượt gọi API, ${fmtDur(S.run.end - S.run.start)}`, 'l-info');
   if (!S.stopRequested && $('#opt-autoexcel').checked) exportExcelAll(keys);
   if ($('#opt-schedule').checked) scheduleNext();
+}
+
+// Chờ ms mili giây, thoát sớm khi bấm Dừng.
+async function pause(ms) {
+  const end = Date.now() + ms;
+  while (Date.now() < end && !S.stopRequested) await new Promise((r) => setTimeout(r, Math.min(250, end - Date.now())));
 }
 
 function restore(k, old) {
@@ -246,7 +286,34 @@ function restore(k, old) {
   else S.tasks.delete(k);
 }
 
-async function runOne(k, { from, to, autoSave }, old) {
+function renderIters() {
+  if (!S.iters || !S.iters.length) return;
+  const sum = (f) => S.iters.reduce((n, x) => n + (x[f] || 0), 0);
+  $('#iter-sum').textContent = `${S.iters.length} vòng · ${fmtNum(sum('calls'))} lượt gọi API`;
+  $('#iter-wrap').innerHTML = `<table>
+    <thead><tr><th class="num">Vòng</th><th>Bắt đầu</th><th class="num">Thành công</th><th class="num">Lỗi</th><th class="num">Bỏ qua</th>
+      <th class="num">Bản ghi</th><th class="num">Lượt gọi API</th><th class="num">Thời gian</th></tr></thead>
+    <tbody>${S.iters.map((x) => `<tr>
+      <td class="num">${x.it}</td><td>${fmtTime(x.start)}</td>
+      <td class="num"><b class="ok-text">${fmtNum(x.ok)}</b></td><td class="num">${x.error ? `<b class="err-text">${fmtNum(x.error)}</b>` : 0}</td>
+      <td class="num">${fmtNum(x.skipped)}</td><td class="num">${fmtNum(x.rows)}</td><td class="num">${fmtNum(x.calls)}</td>
+      <td class="num">${x.end ? fmtDur(x.end - x.start) : '<span class="hint">đang chạy</span>'}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td colspan="2">Tổng cộng</td><td class="num">${fmtNum(sum('ok'))}</td><td class="num">${fmtNum(sum('error'))}</td><td class="num">${fmtNum(sum('skipped'))}</td>
+      <td class="num">${fmtNum(sum('rows'))}</td><td class="num">${fmtNum(sum('calls'))}</td><td></td></tr></tfoot>
+  </table>`;
+}
+
+function exportIters() {
+  if (!ensureXlsx() || !S.iters || !S.iters.length) return;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.iters.map((x) => ({
+    'Vòng': x.it, 'Bắt đầu': fmtTime(x.start), 'Thành công': x.ok, 'Lỗi': x.error, 'Bỏ qua': x.skipped,
+    'Bản ghi': x.rows, 'Lượt gọi API': x.calls, 'Thời gian (giây)': x.end ? +((x.end - x.start) / 1000).toFixed(1) : null,
+  }))), 'Chay lap');
+  XLSX.writeFile(wb, `ChayLap_${stamp()}.xlsx`);
+}
+
+async function runOne(k, { from, to, autoSave, guard }, old) {
   const [xaId, itemKey] = k.split('|');
   const xa = S.config.xa.find((x) => x.id === xaId);
   const item = S.items.get(itemKey);
@@ -257,8 +324,14 @@ async function runOne(k, { from, to, autoSave }, old) {
   const ctrl = new AbortController();
   S.controllers.add(ctrl);
   try {
-    const r = await api('/api/query', { method: 'POST', body: JSON.stringify({ xaId, itemKey, from, to, autoSave }), signal: ctrl.signal });
+    const r = await api('/api/query', { method: 'POST', body: JSON.stringify({ xaId, itemKey, from, to, autoSave, guard }), signal: ctrl.signal });
     (r.logs || []).forEach((l) => log(`${label}:${l}`));
+    if (r.skipped) {
+      // Không đủ lượt trong giới hạn: giữ nguyên kết quả cũ trong bảng, chỉ đổi trạng thái.
+      S.tasks.set(k, { ...(old || {}), xaId, itemKey, status: 'skipped', error: r.error, warnings: [], finishedAt: Date.now() });
+      log(`⏭ ${label}: bỏ qua – ${r.error}`);
+      return { status: 'skipped', count: 0, calls: 0 };
+    }
     S.tasks.set(k, {
       xaId, itemKey, status: r.ok ? 'ok' : 'error', count: r.count, durationMs: r.durationMs, error: r.error,
       warnings: r.warnings || [], finishedAt: Date.now(), from: r.from, to: r.to, files: r.files || [],
@@ -269,12 +342,15 @@ async function runOne(k, { from, to, autoSave }, old) {
     } else {
       log(`✘ ${label}: ${r.error} (${r.calls} lượt gọi API)`, 'l-err');
     }
+    return { status: r.ok ? 'ok' : 'error', count: r.count, calls: r.calls };
   } catch (e) {
-    if (e.name === 'AbortError') restore(k, old);
-    else {
-      S.tasks.set(k, { xaId, itemKey, status: 'error', count: 0, error: e.message, warnings: [], finishedAt: Date.now() });
-      log(`✘ ${label}: ${e.message}`, 'l-err');
+    if (e.name === 'AbortError') {
+      restore(k, old);
+      return null;
     }
+    S.tasks.set(k, { xaId, itemKey, status: 'error', count: 0, error: e.message, warnings: [], finishedAt: Date.now() });
+    log(`✘ ${label}: ${e.message}`, 'l-err');
+    return { status: 'error', count: 0, calls: 0 };
   } finally {
     S.controllers.delete(ctrl);
   }
@@ -368,7 +444,10 @@ function renderStats() {
   }
   const pct = S.run && S.run.total ? Math.round((S.run.done / S.run.total) * 100) : 0;
   $('#progress-bar').style.width = `${pct}%`;
-  $('#progress-text').textContent = S.run ? `${S.run.done}/${S.run.total} tác vụ (${pct}%)` : 'Chưa chạy';
+  $('#progress-text').textContent = S.run
+    ? `${S.run.iterations > 1 ? `Vòng ${S.run.iter}/${S.run.iterations} · ` : ''}${S.run.done}/${S.run.total} tác vụ (${pct}%)`
+    : 'Chưa chạy';
+  if (S.running) updateRunButton();
 
   $('#stats-wrap').innerHTML = !infos.length
     ? '<div class="empty">Chọn ít nhất một danh mục và một xã để bắt đầu.</div>'
@@ -383,9 +462,9 @@ function listHtml(infos, totalRows) {
   const body = infos.map((i, n) => {
     const t = i.t;
     const range = t.from ? `${viDate(t.from)} – ${viDate(t.to)}` : (i.item.dated ? '' : '—');
-    const note = t.status === 'error' ? `<td class="err-text">${esc(t.error)}</td>`
+    const note = t.status === 'error' || t.status === 'skipped' ? `<td class="err-text">${esc(t.error)}</td>`
       : `<td class="warn-text">${esc((t.warnings || []).join('; '))}</td>`;
-    const hasData = t.status === 'ok';
+    const hasData = t.status === 'ok' || (t.status === 'skipped' && t.count > 0);
     const q = `xa=${encodeURIComponent(i.xaId)}&item=${encodeURIComponent(i.itemKey)}`;
     return `<tr>
       <td class="num">${n + 1}</td>
@@ -880,7 +959,10 @@ function bindEvents() {
     $$('#presets .chip').forEach((c) => (c.style.borderColor = ''));
     savePrefs();
   }));
-  ['#opt-autosave', '#opt-autoexcel', '#opt-interval', '#opt-concurrency'].forEach((s) => $(s).addEventListener('change', savePrefs));
+  ['#opt-autosave', '#opt-autoexcel', '#opt-interval', '#opt-concurrency', '#opt-delay'].forEach((s) => $(s).addEventListener('change', savePrefs));
+  $('#opt-iter').addEventListener('input', () => { updateRunButton(); savePrefs(); });
+  $('#iter-excel').onclick = exportIters;
+  $('#iter-hide').onclick = () => $('#iter-card').classList.add('hidden');
   $('#opt-schedule').addEventListener('change', () => { S.nextRunAt = null; tickSchedule(); });
   $('#opt-interval').addEventListener('change', () => { S.nextRunAt = null; });
 

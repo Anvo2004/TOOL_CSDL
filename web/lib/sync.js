@@ -17,7 +17,8 @@ async function executeTask({ settings, xa, item, from, to, autoSave = false, sou
     xaId: xa.id, xaName: xa.name, itemKey: item.key, itemName: item.name, categoryName: item.category.name,
     from: item.dated ? from : null, to: item.dated ? to : null, startedAt: new Date(started).toISOString(), source,
   };
-  const m = { auto: source === 'auto', calls: 0, ok: 0, err: 0 };
+  // limited: dừng khi chạm giới hạn lượt tự đặt (đồng bộ tự động và chạy lặp).
+  const m = { auto: source === 'auto', limited: source !== 'manual', calls: 0, ok: 0, err: 0 };
   let entry;
   try {
     const { rows, warnings } = await usage.meter.run(m, () => runItem({ settings, xa, item, from, to, log }));
@@ -173,4 +174,4 @@ async function saveAutoSettings(input) {
   await store.patchSettings(p);
 }
 
-module.exports = { executeTask, runSync, startScheduler, status, saveAutoSettings, AUTO_KEYS };
+module.exports = { executeTask, estimateCost, runSync, startScheduler, status, saveAutoSettings, AUTO_KEYS };

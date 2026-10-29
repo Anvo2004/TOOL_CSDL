@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS = {
   qlvbdh_page_size: 1000,
   max_pages: 200,
   job_timeout_sec: 120,
+  csdlpx_limit: 10000,
   // Đồng bộ tự động (xem lib/sync.js)
   auto_enabled: false,
   auto_runs_per_day: 4,
@@ -114,7 +115,7 @@ async function updateConfig(incoming) {
     return y;
   });
   const settings = { ...cur.settings, ...(incoming.settings || {}) };
-  for (const k of ['page_size', 'qlvbdh_page_size', 'max_pages', 'job_timeout_sec']) settings[k] = Math.max(1, Number(settings[k]) || DEFAULT_SETTINGS[k]);
+  for (const k of ['page_size', 'qlvbdh_page_size', 'max_pages', 'job_timeout_sec', 'csdlpx_limit']) settings[k] = Math.max(1, Number(settings[k]) || DEFAULT_SETTINGS[k]);
   await saveConfig({ settings, xa });
 }
 

@@ -616,7 +616,7 @@ function fillAutoForm(s) {
   $('#a-deflimit').value = s.auto_default_limit;
   $('#a-fixlimit').value = s.auto_daily_limit;
   const items = new Set(s.auto_items || []);
-  $('#a-items').innerHTML = [...S.items.values()].filter((it) => it.cat.id !== 'csdlpx' || items.has(it.key)).map((it) =>
+  $('#a-items').innerHTML = [...S.items.values()].map((it) =>
     `<label class="check"><input type="checkbox" value="${esc(it.key)}" ${items.has(it.key) ? 'checked' : ''}> ${esc(it.cat.short)} – ${esc(it.name)}</label>`).join('');
   const xa = new Set(s.auto_xa || []);
   $('#a-xa').innerHTML = S.config.xa.map((x) =>
@@ -751,6 +751,7 @@ const SETTING_FIELDS = [
   ['qlvbdh_page_size', 'Số bản ghi mỗi trang (QLVBDH)', 'number'],
   ['max_pages', 'Số trang tối đa mỗi lần', 'number'],
   ['job_timeout_sec', 'Thời gian chờ job QLVBDH (giây)', 'number'],
+  ['csdlpx_limit', 'Số bản ghi mỗi lần gọi (CSDL Phường xã)', 'number'],
 ];
 const BASE_FIELDS = [
   ['token_url', 'Token URL'], ['base_qlvbdh', 'QLVBDH'], ['base_gopy', 'Góp ý'],

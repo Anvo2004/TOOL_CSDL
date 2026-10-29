@@ -349,8 +349,12 @@ async function runItem({ settings, xa, item, from, to, log }) {
       }
       case 'csdlpx': {
         if (!xa.csdlpx_username || !xa.csdlpx_password) throw new Error(`Xã "${xa.name}" chưa cấu hình tài khoản CSDL Phường xã`);
-        const q = new URLSearchParams({ username: xa.csdlpx_username, password: xa.csdlpx_password });
-        res = extractRows(await apiJson(settings, xa, `${settings.base_csdlpx}${item.path}?${q}`, {}, 'CSDL PX'));
+        // API mặc định chỉ trả 1 bản ghi mỗi trang: xin `limit` lớn để lấy hết trong 1 lượt gọi, còn trang thì lật tiếp.
+        const limit = settings.csdlpx_limit;
+        res = await paginate(async (page) => {
+          const q = new URLSearchParams({ username: xa.csdlpx_username, password: xa.csdlpx_password, limit: String(limit), page: String(page) });
+          return extractRows(await apiJson(settings, xa, `${settings.base_csdlpx}${item.path}?${q}`, {}, 'CSDL PX'));
+        }, limit, maxPages, log, { trustPageSize: true });
         break;
       }
       default:

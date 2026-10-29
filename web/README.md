@@ -27,6 +27,15 @@ Sau đó mở http://localhost:3000. Trên Windows có thể bấm đúp `start.
 - **Tự động truy vấn lại mỗi N phút**: chạy lại theo chu kỳ trong lúc trang còn mở, khoảng ngày nhanh (7 ngày, tháng này...) sẽ được tính lại mỗi lần.
 - Tab **Lịch sử** ghi lại mọi lần chạy (`data/history.jsonl`).
 
+## Tự động & hạn mức
+
+Tab **Tự động & hạn mức**:
+
+- **Đếm lượt gọi**: mọi lượt gọi API LGSP (thủ công lẫn tự động) được đếm theo ngày, xã và hệ thống: thành công, lỗi, bị chặn (429). Có tổng hôm nay / 7 ngày / 30 ngày, bảng theo ngày, theo xã, xuất Excel. Tab Lịch sử có thêm cột "Lượt gọi API" và "Nguồn".
+- **Đồng bộ tự động**: bật lên thì máy chủ tự lấy các mục đã chọn (mặc định Văn bản đến/đi, Lịch công tác, Góp ý, Việc VPUB) cho các xã đã chọn, N lượt mỗi ngày, chia đều trong khung giờ (giờ Việt Nam), lấy dữ liệu N ngày gần nhất và lưu vào CSDL. Mỗi lượt ghi lại số tác vụ thành công / lỗi / bỏ qua và số lượt gọi API. Máy chủ phải đang chạy thì lịch mới chạy (Render gói Starter luôn chạy; gói Free bị ngủ).
+- **Hạn mức**: LGSP đặt lại hạn mức lúc 7:00 sáng (00:00 UTC), tính riêng cho từng API của mỗi khóa. Lần đầu bị 429, số lượt đã gọi trước đó được ghi làm hạn mức dò được (lấy giá trị lớn nhất trong 10 lần gần nhất); nếu LGSP trả header `X-RateLimit-Limit` thì dùng luôn số đó. Đồng bộ tự động chỉ dùng tối đa % hạn mức đã đặt (mặc định 80%), khi chưa dò được thì dùng giới hạn mặc định (50 lượt/ngày/hệ thống), hoặc đặt giới hạn cố định. Khi đang bị chặn, web không gửi yêu cầu nào cho đến giờ LGSP mở lại.
+- Hạn mức dò được chỉ tính lượt gọi từ web. Nếu cùng khóa còn được dùng ở Postman hoặc nơi khác thì hạn mức thật lớn hơn số dò được.
+
 ## Cấu hình
 
 Tab **Cấu hình** (lưu tại `config/config.json`), đã điền sẵn từ các environment Postman của Điện Bàn, Điện Bàn Bắc, Trà Liên:
@@ -45,7 +54,9 @@ Tab **Cấu hình** (lưu tại `config/config.json`), đã điền sẵn từ c
 server.js          máy chủ HTTP + proxy gọi LGSP
 lib/catalog.js     danh mục hệ thống và mục truy vấn
 lib/lgsp.js        token, gọi API, phân trang, xử lý job QLVBDH
-lib/store.js       cấu hình, kết quả, lịch sử, xuất file
+lib/usage.js       đếm lượt gọi API, dò hạn mức, chặn khi bị LGSP khóa
+lib/sync.js        chạy tác vụ, lịch đồng bộ tự động trong ngày
+lib/store.js       cấu hình, kết quả, lịch sử, lượt gọi, xuất file
 lib/util.js        ngày tháng, bóc tách bản ghi, CSV
 public/            giao diện web
 ```

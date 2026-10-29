@@ -8,8 +8,10 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { CATEGORIES, ITEMS } = require('./lib/catalog');
-const { runItem, getToken, recordCallback } = require('./lib/lgsp');
+const { getToken, recordCallback } = require('./lib/lgsp');
 const store = require('./lib/store');
+const usage = require('./lib/usage');
+const sync = require('./lib/sync');
 const { flattenRow, columnsOf, toCsv, slug } = require('./lib/util');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -114,26 +116,27 @@ async function handleQuery(req, res) {
   if (!item) return send(res, 404, { error: `Không có mục ${itemKey}` });
 
   const logs = [];
-  const log = (m) => logs.push(m);
-  const started = Date.now();
-  const base = {
-    xaId, xaName: xa.name, itemKey, itemName: item.name, categoryName: item.category.name,
-    from: item.dated ? from : null, to: item.dated ? to : null, startedAt: new Date(started).toISOString(),
-  };
-
-  let entry;
-  try {
-    const { rows, warnings } = await runItem({ settings: cfg.settings, xa, item, from, to, log });
-    const durationMs = Date.now() - started;
-    const result = { ...base, ok: true, count: rows.length, durationMs, warnings, rows };
-    await store.saveResult(result);
-    const files = autoSave && rows.length ? store.exportFiles(result) : [];
-    entry = { ...base, ok: true, count: rows.length, durationMs, warnings, files };
-  } catch (e) {
-    entry = { ...base, ok: false, count: 0, durationMs: Date.now() - started, error: e.message, warnings: [], files: [] };
-  }
-  await store.appendHistory(entry);
+  const entry = await sync.executeTask({ settings: cfg.settings, xa, item, from, to, autoSave, log: (m) => logs.push(m) });
   send(res, 200, { ...entry, logs });
+}
+
+// ---------- Đồng bộ tự động & hạn mức ----------
+async function handleAuto(res) {
+  const { settings } = await store.loadConfig();
+  const auto = Object.fromEntries(sync.AUTO_KEYS.map((k) => [k, settings[k]]));
+  send(res, 200, { settings: auto, ...sync.status(settings) });
+}
+
+async function handleUsage(url, res) {
+  const cfg = await store.loadConfig();
+  const days = Math.min(400, Math.max(1, Number(url.searchParams.get('days')) || 30));
+  send(res, 200, {
+    quotaDay: usage.quotaDay(),
+    resetAt: new Date(usage.nextUtcMidnight()).toISOString(),
+    today: usage.snapshot(cfg.settings, cfg.xa),
+    ...(await usage.report(days)),
+    runs: await store.readSyncRuns(Number(url.searchParams.get('runs')) || 30),
+  });
 }
 
 async function handleResult(url, res) {
@@ -209,6 +212,21 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/download') return await handleDownload(url, res);
     if (req.method === 'GET' && p === '/api/history') return send(res, 200, await store.readHistory(Number(url.searchParams.get('limit')) || 500));
     if (req.method === 'GET' && p === '/api/stats') return send(res, 200, await store.latestStats());
+    if (req.method === 'GET' && p === '/api/auto') return await handleAuto(res);
+    if (req.method === 'PUT' && p === '/api/auto') {
+      await sync.saveAutoSettings(await readJson(req));
+      return await handleAuto(res);
+    }
+    if (req.method === 'POST' && p === '/api/auto/run') {
+      sync.runSync({ trigger: 'manual' }).catch((e) => console.error('Lỗi đồng bộ:', e.message));
+      return send(res, 202, { started: true });
+    }
+    if (req.method === 'GET' && p === '/api/usage') return await handleUsage(url, res);
+    if (req.method === 'POST' && p === '/api/usage/unblock') {
+      const { xaId, sys } = await readJson(req);
+      usage.unblock(xaId, sys);
+      return send(res, 200, { ok: true });
+    }
     if (req.method === 'GET' && !p.startsWith('/api/')) return serveStatic(p === '/login.html' ? '/' : p, res);
     send(res, 404, { error: 'Not found' });
   } catch (e) {
@@ -220,7 +238,9 @@ const server = http.createServer(async (req, res) => {
 // Truy vấn QLVBDH có thể chờ job vài phút — tắt giới hạn thời gian request mặc định của Node.
 server.requestTimeout = 0;
 
-store.init().then(() => {
+store.init().then(async () => {
+  await usage.init();
+  await sync.startScheduler();
   server.listen(PORT, HOST, () => {
     console.log(`Công cụ truy vấn LGSP đang chạy: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`Lưu trữ: ${store.storageName() === 'mongo' ? 'MongoDB' : `file (${store.EXPORT_DIR})`} · Đăng nhập: ${AUTH_ON ? 'bật' : 'tắt'}`);

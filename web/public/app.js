@@ -11,7 +11,8 @@ const fmtDur = (ms) => (ms == null ? '–' : ms < 1000 ? `${ms} ms` : ms < 60000
 const fmtTime = (t) => (t ? new Date(t).toLocaleString('vi-VN', { hour12: false }) : '');
 const taskKey = (xaId, itemKey) => `${xaId}|${itemKey}`;
 
-const STATUS_LABEL = { ok: 'Thành công', error: 'Lỗi', running: 'Đang chạy', queued: 'Đang chờ', pending: 'Chưa chạy' };
+const STATUS_LABEL = { ok: 'Thành công', error: 'Lỗi', running: 'Đang chạy', queued: 'Đang chờ', pending: 'Chưa chạy', skipped: 'Bỏ qua' };
+const SOURCE_LABEL = { manual: 'Thủ công', auto: 'Tự động' };
 
 const S = {
   catalog: [],
@@ -263,10 +264,10 @@ async function runOne(k, { from, to, autoSave }, old) {
       warnings: r.warnings || [], finishedAt: Date.now(), from: r.from, to: r.to, files: r.files || [],
     });
     if (r.ok) {
-      log(`✔ ${label}: ${fmtNum(r.count)} bản ghi (${fmtDur(r.durationMs)})${r.files && r.files.length ? ' → đã lưu file' : ''}`, 'l-ok');
+      log(`✔ ${label}: ${fmtNum(r.count)} bản ghi (${fmtDur(r.durationMs)}, ${r.calls} lượt gọi API)${r.files && r.files.length ? ' → đã lưu file' : ''}`, 'l-ok');
       (r.warnings || []).forEach((w) => log(`  ⚠ ${w}`));
     } else {
-      log(`✘ ${label}: ${r.error}`, 'l-err');
+      log(`✘ ${label}: ${r.error} (${r.calls} lượt gọi API)`, 'l-err');
     }
   } catch (e) {
     if (e.name === 'AbortError') restore(k, old);
@@ -567,13 +568,13 @@ function historyRows() {
 function renderHistory() {
   const rows = historyRows();
   $('#hist-wrap').innerHTML = rows.length ? `<table>
-    <thead><tr><th>Thời điểm</th><th>Xã / phường</th><th>Hệ thống</th><th>Mục</th><th>Khoảng ngày</th><th>Kết quả</th>
-      <th class="num">Số bản ghi</th><th class="num">Thời gian</th><th>File đã lưu</th><th>Lỗi / cảnh báo</th></tr></thead>
+    <thead><tr><th>Thời điểm</th><th>Nguồn</th><th>Xã / phường</th><th>Hệ thống</th><th>Mục</th><th>Khoảng ngày</th><th>Kết quả</th>
+      <th class="num">Số bản ghi</th><th class="num">Lượt gọi API</th><th class="num">Thời gian</th><th>File đã lưu</th><th>Lỗi / cảnh báo</th></tr></thead>
     <tbody>${rows.map((h) => `<tr>
-      <td>${fmtTime(h.startedAt)}</td><td>${esc(h.xaName)}</td><td>${esc(h.categoryName)}</td><td>${esc(h.itemName)}</td>
+      <td>${fmtTime(h.startedAt)}</td><td>${SOURCE_LABEL[h.source] || 'Thủ công'}</td><td>${esc(h.xaName)}</td><td>${esc(h.categoryName)}</td><td>${esc(h.itemName)}</td>
       <td>${h.from ? `${viDate(h.from)} – ${viDate(h.to)}` : '—'}</td>
       <td>${statusBadge(h.ok ? 'ok' : 'error')}</td>
-      <td class="num">${h.ok ? fmtNum(h.count) : ''}</td><td class="num">${fmtDur(h.durationMs)}</td>
+      <td class="num">${h.ok ? fmtNum(h.count) : ''}</td><td class="num">${h.calls != null ? fmtNum(h.calls) : ''}</td><td class="num">${fmtDur(h.durationMs)}</td>
       <td style="font-size:12px">${(h.files || []).map(esc).join('<br>')}</td>
       <td class="${h.ok ? 'warn-text' : 'err-text'}">${esc(h.ok ? (h.warnings || []).join('; ') : h.error)}</td>
     </tr>`).join('')}</tbody></table>` : '<div class="empty">Chưa có lịch sử.</div>';
@@ -582,14 +583,164 @@ function renderHistory() {
 function exportHistory() {
   if (!ensureXlsx()) return;
   const rows = historyRows().map((h) => ({
-    'Thời điểm': fmtTime(h.startedAt), 'Xã/phường': h.xaName, 'Hệ thống': h.categoryName, 'Mục': h.itemName,
+    'Thời điểm': fmtTime(h.startedAt), 'Nguồn': SOURCE_LABEL[h.source] || 'Thủ công', 'Xã/phường': h.xaName, 'Hệ thống': h.categoryName, 'Mục': h.itemName,
     'Từ ngày': viDate(h.from), 'Đến ngày': viDate(h.to), 'Kết quả': h.ok ? 'Thành công' : 'Lỗi',
-    'Số bản ghi': h.ok ? h.count : null, 'Thời gian (giây)': +(h.durationMs / 1000).toFixed(1),
+    'Số bản ghi': h.ok ? h.count : null, 'Lượt gọi API': h.calls ?? null, 'Thời gian (giây)': +(h.durationMs / 1000).toFixed(1),
     'File đã lưu': (h.files || []).join('; '), 'Lỗi / cảnh báo': h.ok ? (h.warnings || []).join('; ') : h.error,
   }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Lich su');
   XLSX.writeFile(wb, `LichSu_TruyVan_${stamp()}.xlsx`);
+}
+
+// ---------- Tự động & hạn mức ----------
+const LIMIT_SOURCE = { manual: 'cố định', '429': 'dò từ lỗi 429', header: 'theo header LGSP', default: 'mặc định (chưa dò được)' };
+
+async function loadAutoTab() {
+  const [auto, u] = await Promise.all([api('/api/auto'), api('/api/usage?days=30')]);
+  S.auto = auto;
+  S.usage = u;
+  if (!S.autoFormDirty) fillAutoForm(auto.settings);
+  renderAutoStatus();
+  renderUsage();
+}
+
+function fillAutoForm(s) {
+  $('#a-enabled').checked = !!s.auto_enabled;
+  $('#a-runs').value = s.auto_runs_per_day;
+  $('#a-start').value = s.auto_start;
+  $('#a-end').value = s.auto_end;
+  $('#a-days').value = s.auto_days;
+  $('#a-conc').value = s.auto_concurrency;
+  $('#a-pct').value = s.auto_safety_pct;
+  $('#a-deflimit').value = s.auto_default_limit;
+  $('#a-fixlimit').value = s.auto_daily_limit;
+  const items = new Set(s.auto_items || []);
+  $('#a-items').innerHTML = [...S.items.values()].filter((it) => it.cat.id !== 'csdlpx' || items.has(it.key)).map((it) =>
+    `<label class="check"><input type="checkbox" value="${esc(it.key)}" ${items.has(it.key) ? 'checked' : ''}> ${esc(it.cat.short)} – ${esc(it.name)}</label>`).join('');
+  const xa = new Set(s.auto_xa || []);
+  $('#a-xa').innerHTML = S.config.xa.map((x) =>
+    `<label class="check"><input type="checkbox" value="${esc(x.id)}" ${xa.has(x.id) ? 'checked' : ''}> ${esc(x.name)}</label>`).join('') || '<p class="hint">Chưa có xã nào.</p>';
+}
+
+function renderAutoStatus() {
+  const a = S.auto;
+  $('#a-slots').innerHTML = a.slots.map((x) => `<span class="slot ${x.status}" title="${{ done: 'Đã chạy', running: 'Đang chạy', missed: 'Đã qua (máy chủ không chạy lúc đó)', pending: 'Chưa đến giờ' }[x.status]}">${x.time}</span>`).join('');
+  let msg = !a.enabled ? 'Đang tắt. Các mốc giờ trên là dự kiến khi bật.'
+    : a.next ? `Lượt kế tiếp lúc ${a.next} hôm nay.` : 'Đã chạy hết các mốc hôm nay, lượt kế tiếp vào ngày mai.';
+  if (a.running && a.current) msg = `Đang đồng bộ: ${a.current.done}/${a.current.total} tác vụ...`;
+  else if (a.lastRun) msg += ` Lượt gần nhất ${fmtTime(a.lastRun.finishedAt)}: ${a.lastRun.ok} thành công, ${a.lastRun.error} lỗi, ${a.lastRun.skipped} bỏ qua, ${fmtNum(a.lastRun.calls)} lượt gọi API.`;
+  $('#a-status').textContent = msg;
+  $('#auto-run').disabled = a.running;
+}
+
+function readAutoForm() {
+  return {
+    auto_enabled: $('#a-enabled').checked,
+    auto_runs_per_day: Number($('#a-runs').value),
+    auto_start: $('#a-start').value,
+    auto_end: $('#a-end').value,
+    auto_days: Number($('#a-days').value),
+    auto_concurrency: Number($('#a-conc').value),
+    auto_safety_pct: Number($('#a-pct').value),
+    auto_default_limit: Number($('#a-deflimit').value),
+    auto_daily_limit: Number($('#a-fixlimit').value),
+    auto_items: $$('#a-items input:checked').map((el) => el.value),
+    auto_xa: $$('#a-xa input:checked').map((el) => el.value),
+  };
+}
+
+async function saveAuto() {
+  const form = readAutoForm();
+  if (!form.auto_items.length) return toast('Chọn ít nhất một mục để đồng bộ');
+  await api('/api/auto', { method: 'PUT', body: JSON.stringify(form) });
+  S.autoFormDirty = false;
+  await loadAutoTab();
+  toast('Đã lưu cấu hình đồng bộ tự động');
+}
+
+const callsSub = (t) => `${fmtNum(t.ok)} thành công · ${fmtNum(t.err)} lỗi${t.throttled ? ` (${fmtNum(t.throttled)} bị chặn)` : ''}`;
+
+function renderUsage() {
+  const u = S.usage;
+  const t = u.totals;
+  $('#u-today').textContent = fmtNum(t.today.calls);
+  $('#u-today-sub').textContent = callsSub(t.today);
+  $('#u-week').textContent = fmtNum(t.week.calls);
+  $('#u-week-sub').textContent = callsSub(t.week);
+  $('#u-month').textContent = fmtNum(t.month.calls);
+  $('#u-month-sub').textContent = callsSub(t.month);
+  $('#u-tok').textContent = fmtNum(t.today.tasksOk);
+  $('#u-terr').textContent = fmtNum(t.today.tasksErr);
+  $('#u-reset').textContent = `hạn mức đặt lại lúc ${fmtTime(u.resetAt)}`;
+
+  const autoSys = new Set((S.auto.settings.auto_items || []).map((k) => k.split('.')[0]));
+  const rows = u.today.filter((r) => $('#u-all-sys').checked || r.calls || r.quota || r.blockedUntil || autoSys.has(r.sys));
+  $('#u-quota').innerHTML = rows.length ? `<table>
+    <thead><tr><th>Xã / phường</th><th>Hệ thống</th><th class="num">Đã gọi</th><th class="num">Lỗi</th><th>Đã dùng / giới hạn tự đặt</th>
+      <th class="num">Hạn mức dò được</th><th>Trạng thái</th></tr></thead>
+    <tbody>${rows.map((r) => {
+      const pct = Math.min(100, Math.round((r.used / r.limit) * 100));
+      const cls = pct >= 100 ? 'full' : pct >= 80 ? 'warn' : '';
+      const obs = r.observed.map((o) => `${o.day}: ${o.used}`).join(', ');
+      return `<tr>
+        <td class="nw">${esc(r.xaName)}</td><td class="nw">${esc(r.sysName)}</td>
+        <td class="num">${fmtNum(r.calls)}</td><td class="num">${r.err ? `<span class="err-text">${fmtNum(r.err)}</span>` : 0}</td>
+        <td><span class="nw">${fmtNum(r.used)} / ${fmtNum(r.limit)}</span> <span class="hint">(${LIMIT_SOURCE[r.limitSource] || r.limitSource})</span>
+          <div class="meter ${cls}"><span style="width:${pct}%"></span></div></td>
+        <td class="num" title="${esc(obs ? 'Các lần quan sát: ' + obs : '')}">${r.quota ? fmtNum(r.quota) : '<span class="hint">chưa biết</span>'}</td>
+        <td>${r.blockedUntil
+          ? `<span class="badge-st st-error">Bị LGSP chặn đến ${fmtTime(r.blockedUntil)}</span> <button class="btn sm" data-act="unblock" data-xa="${esc(r.xaId)}" data-sys="${esc(r.sys)}" title="Chỉ bấm khi chắc LGSP đã mở lại (ví dụ đã được nâng hạn mức)">Bỏ chặn</button>`
+          : r.used >= r.limit ? '<span class="badge-st st-queued">Đủ giới hạn, tự động dừng</span>' : '<span class="badge-st st-ok">Còn lượt</span>'}</td>
+      </tr>`;
+    }).join('')}</tbody></table>` : '<div class="empty">Chưa có xã nào.</div>';
+
+  $('#u-runs').innerHTML = u.runs.length ? `<table>
+    <thead><tr><th>Bắt đầu</th><th>Kiểu</th><th>Khoảng ngày</th><th class="num">Thành công</th><th class="num">Lỗi</th><th class="num">Bỏ qua</th>
+      <th class="num">Bản ghi</th><th class="num">Lượt gọi API</th><th class="num">Thời gian</th><th>Chi tiết</th></tr></thead>
+    <tbody>${u.runs.map((r) => `<tr>
+      <td class="nw">${fmtTime(r.startedAt)}</td>
+      <td class="nw">${r.trigger === 'auto' ? `Theo lịch ${esc((r.slot || '').split(' ')[1] || '')}` : 'Chạy ngay'}</td>
+      <td class="nw">${viDate(r.from)} – ${viDate(r.to)}</td>
+      <td class="num"><b class="ok-text">${fmtNum(r.ok)}</b></td><td class="num">${r.error ? `<b class="err-text">${fmtNum(r.error)}</b>` : 0}</td><td class="num">${fmtNum(r.skipped)}</td>
+      <td class="num">${fmtNum(r.rows)}</td><td class="num">${fmtNum(r.calls)} <span class="hint">(${fmtNum(r.callsOk)} ok)</span></td>
+      <td class="num">${fmtDur(Date.parse(r.finishedAt) - Date.parse(r.startedAt))}</td>
+      <td><details class="run-detail"><summary>${r.tasks.length} tác vụ</summary><table><tbody>${r.tasks.map((x) => `<tr>
+        <td class="nw">${esc(x.xaName)}</td><td class="nw">${esc(x.itemName)}</td><td>${statusBadge(x.status)}</td>
+        <td class="num">${x.status === 'ok' ? fmtNum(x.count) + ' bản ghi' : ''}</td><td class="num">${fmtNum(x.calls)} lượt</td>
+        <td class="err-text">${esc(x.error || '')}</td></tr>`).join('')}</tbody></table></details></td>
+    </tr>`).join('')}</tbody></table>` : '<div class="empty">Chưa có lượt đồng bộ nào.</div>';
+
+  $('#u-daily').innerHTML = u.daily.length ? `<table>
+    <thead><tr><th>Ngày (7h → 7h hôm sau)</th><th class="num">Truy vấn OK</th><th class="num">Truy vấn lỗi</th>
+      <th class="num">Lượt gọi API</th><th class="num">Thành công</th><th class="num">Lỗi</th><th class="num">Bị chặn</th><th class="num">Tự động</th></tr></thead>
+    <tbody>${u.daily.map((d) => `<tr><td>${viDate(d.day)}</td><td class="num">${fmtNum(d.tasksOk)}</td><td class="num">${fmtNum(d.tasksErr)}</td>
+      <td class="num"><b>${fmtNum(d.calls)}</b></td><td class="num">${fmtNum(d.ok)}</td><td class="num">${fmtNum(d.err)}</td>
+      <td class="num">${fmtNum(d.throttled)}</td><td class="num">${fmtNum(d.auto)}</td></tr>`).join('')}</tbody>
+    <tfoot><tr><td>Tổng 30 ngày</td><td class="num">${fmtNum(t.month.tasksOk)}</td><td class="num">${fmtNum(t.month.tasksErr)}</td><td class="num">${fmtNum(t.month.calls)}</td>
+      <td class="num">${fmtNum(t.month.ok)}</td><td class="num">${fmtNum(t.month.err)}</td><td class="num">${fmtNum(t.month.throttled)}</td><td class="num">${fmtNum(t.month.auto)}</td></tr></tfoot>
+  </table>` : '<div class="empty">Chưa có lượt gọi nào được ghi nhận.</div>';
+
+  const xaName = (id) => (S.config.xa.find((x) => x.id === id) || {}).name || id;
+  $('#u-byxa').innerHTML = u.byXa.length ? `<table>
+    <thead><tr><th>Xã / phường</th><th class="num">Truy vấn OK</th><th class="num">Truy vấn lỗi</th><th class="num">Lượt gọi API</th><th class="num">Thành công</th><th class="num">Lỗi</th></tr></thead>
+    <tbody>${u.byXa.sort((a, b) => b.calls - a.calls).map((x) => `<tr><td>${esc(xaName(x.xaId))}</td><td class="num">${fmtNum(x.tasksOk)}</td><td class="num">${fmtNum(x.tasksErr)}</td>
+      <td class="num"><b>${fmtNum(x.calls)}</b></td><td class="num">${fmtNum(x.ok)}</td><td class="num">${fmtNum(x.err)}</td></tr>`).join('')}</tbody>
+  </table>` : '<div class="empty">Chưa có dữ liệu.</div>';
+}
+
+function exportUsage() {
+  if (!ensureXlsx() || !S.usage) return;
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.usage.daily.map((d) => ({
+    'Ngày': viDate(d.day), 'Truy vấn thành công': d.tasksOk, 'Truy vấn lỗi': d.tasksErr, 'Lượt gọi API': d.calls,
+    'Lượt thành công': d.ok, 'Lượt lỗi': d.err, 'Bị chặn (429)': d.throttled, 'Lượt tự động': d.auto,
+  }))), 'Theo ngay');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.usage.runs.map((r) => ({
+    'Bắt đầu': fmtTime(r.startedAt), 'Kiểu': r.trigger === 'auto' ? 'Theo lịch' : 'Chạy ngay', 'Từ ngày': viDate(r.from), 'Đến ngày': viDate(r.to),
+    'Thành công': r.ok, 'Lỗi': r.error, 'Bỏ qua': r.skipped, 'Bản ghi': r.rows, 'Lượt gọi API': r.calls,
+  }))), 'Luot dong bo');
+  XLSX.writeFile(wb, `LuotGoi_LGSP_${stamp()}.xlsx`);
 }
 
 // ---------- Cấu hình ----------
@@ -670,7 +821,30 @@ function bindEvents() {
     $$('.tab[data-tab]').forEach((x) => x.classList.toggle('active', x === b));
     $$('.tab-page').forEach((p) => p.classList.toggle('hidden', p.id !== `tab-${b.dataset.tab}`));
     if (b.dataset.tab === 'history') loadHistory();
+    if (b.dataset.tab === 'auto') loadAutoTab().catch((e) => toast(e.message));
   }));
+
+  // Tab tự động: tải lại số liệu mỗi 15 giây khi đang mở.
+  setInterval(() => {
+    if (!$('#tab-auto').classList.contains('hidden')) loadAutoTab().catch(() => {});
+  }, 15000);
+  $('#tab-auto').addEventListener('input', (e) => { if (e.target.closest('.auto-grid > .card:first-child')) S.autoFormDirty = true; });
+  $('#auto-save').onclick = () => saveAuto().catch((e) => toast(e.message));
+  $('#auto-run').onclick = async () => {
+    if (!confirm('Chạy ngay 1 lượt đồng bộ với các mục và xã đã lưu? (Lượt này cũng tính vào giới hạn trong ngày)')) return;
+    await api('/api/auto/run', { method: 'POST' }).catch((e) => toast(e.message));
+    toast('Đã bắt đầu đồng bộ');
+    setTimeout(() => loadAutoTab().catch(() => {}), 1000);
+  };
+  $('#u-refresh').onclick = () => loadAutoTab().catch((e) => toast(e.message));
+  $('#u-all-sys').addEventListener('change', renderUsage);
+  $('#u-excel').onclick = exportUsage;
+  $('#u-quota').addEventListener('click', async (e) => {
+    const btn = e.target.closest('[data-act=unblock]');
+    if (!btn || !confirm('Bỏ chặn? Nếu LGSP vẫn đang khóa, lượt gọi tiếp theo sẽ lại bị 429.')) return;
+    await api('/api/usage/unblock', { method: 'POST', body: JSON.stringify({ xaId: btn.dataset.xa, sys: btn.dataset.sys }) });
+    loadAutoTab();
+  });
 
   $('#catalog').addEventListener('click', (e) => {
     const head = e.target.closest('.cat-head');

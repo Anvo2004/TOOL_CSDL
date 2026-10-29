@@ -11,6 +11,9 @@ const CONFIG_FILE = path.join(ROOT, 'config', 'config.json');
 const DATA_DIR = path.join(ROOT, 'data');
 const RESULTS_DIR = path.join(DATA_DIR, 'results');
 const HISTORY_FILE = path.join(DATA_DIR, 'history.jsonl');
+const USAGE_FILE = path.join(DATA_DIR, 'usage.json');
+const QUOTA_FILE = path.join(DATA_DIR, 'quota.json');
+const RUNS_FILE = path.join(DATA_DIR, 'sync_runs.jsonl');
 const EXPORT_DIR = path.join(ROOT, 'exports');
 
 const DEFAULT_SETTINGS = {
@@ -26,6 +29,18 @@ const DEFAULT_SETTINGS = {
   qlvbdh_page_size: 1000,
   max_pages: 200,
   job_timeout_sec: 120,
+  // Đồng bộ tự động (xem lib/sync.js)
+  auto_enabled: false,
+  auto_runs_per_day: 4,
+  auto_start: '07:30',
+  auto_end: '21:30',
+  auto_days: 7,
+  auto_items: ['qlvbdh.vbden', 'qlvbdh.vbdi', 'qlvbdh.lich', 'gopy.gopy', 'vpub.viecdonvi'],
+  auto_xa: [],
+  auto_concurrency: 2,
+  auto_safety_pct: 80,
+  auto_default_limit: 50,
+  auto_daily_limit: 0,
 };
 
 const SECRET_FIELDS = ['secret', 'organKey', 'gopy_pass', 'csdlpx_password'];
@@ -48,6 +63,8 @@ async function init() {
     db.collection('history').createIndex({ startedAt: -1 }),
     db.collection('history').createIndex({ xaId: 1, itemKey: 1, startedAt: -1 }),
     db.collection('result_chunks').createIndex({ xaId: 1, itemKey: 1, runId: 1, seq: 1 }),
+    db.collection('usage').createIndex({ day: 1 }),
+    db.collection('sync_runs').createIndex({ startedAt: -1 }),
   ]);
 }
 
@@ -180,6 +197,54 @@ async function latestStats() {
   return [...seen.values()];
 }
 
+// ---------- Đếm lượt gọi API, hạn mức, các lượt đồng bộ tự động ----------
+const readJsonFile = (f, def) => (fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')) : def);
+
+// doc: { _id: 'ngày|xã|hệ thống', day, xaId, sys }; inc: các bộ đếm cần cộng thêm.
+async function incUsage(doc, inc) {
+  const { _id, day, xaId, sys } = doc;
+  if (useMongo) {
+    await db.collection('usage').updateOne({ _id }, { $inc: inc, $setOnInsert: { day, xaId, sys } }, { upsert: true });
+    return;
+  }
+  const all = readJsonFile(USAGE_FILE, {});
+  const cur = all[_id] || { _id, day, xaId, sys };
+  for (const [k, v] of Object.entries(inc)) cur[k] = (cur[k] || 0) + v;
+  all[_id] = cur;
+  fs.writeFileSync(USAGE_FILE, JSON.stringify(all), 'utf8');
+}
+
+async function readUsage(fromDay) {
+  if (useMongo) return db.collection('usage').find({ day: { $gte: fromDay } }).toArray();
+  return Object.values(readJsonFile(USAGE_FILE, {})).filter((u) => u.day >= fromDay);
+}
+
+async function loadQuotas() {
+  if (useMongo) return db.collection('quota').find({}).toArray();
+  return Object.values(readJsonFile(QUOTA_FILE, {}));
+}
+
+async function saveQuota(q) {
+  if (useMongo) {
+    await db.collection('quota').replaceOne({ _id: q._id }, q, { upsert: true });
+    return;
+  }
+  const all = readJsonFile(QUOTA_FILE, {});
+  all[q._id] = q;
+  fs.writeFileSync(QUOTA_FILE, JSON.stringify(all, null, 2), 'utf8');
+}
+
+async function appendSyncRun(run) {
+  if (useMongo) await db.collection('sync_runs').insertOne({ ...run });
+  else fs.appendFileSync(RUNS_FILE, JSON.stringify(run) + '\n', 'utf8');
+}
+
+async function readSyncRuns(limit = 50) {
+  if (useMongo) return db.collection('sync_runs').find({}, { projection: { _id: 0 } }).sort({ startedAt: -1 }).limit(limit).toArray();
+  if (!fs.existsSync(RUNS_FILE)) return [];
+  return fs.readFileSync(RUNS_FILE, 'utf8').trim().split('\n').filter(Boolean).slice(-limit).map((l) => JSON.parse(l)).reverse();
+}
+
 // Lưu bản sao CSV/JSON ra ổ đĩa — chỉ ở chế độ chạy trên máy (trên Render ổ đĩa bị xóa khi deploy).
 function exportFiles(result) {
   if (useMongo) return [];
@@ -196,4 +261,5 @@ function exportFiles(result) {
 module.exports = {
   ROOT, EXPORT_DIR, init, storageName, loadConfig, saveConfig, maskedConfig, updateConfig, patchSettings,
   saveResult, loadResult, appendHistory, readHistory, latestStats, exportFiles,
+  incUsage, readUsage, loadQuotas, saveQuota, appendSyncRun, readSyncRuns,
 };

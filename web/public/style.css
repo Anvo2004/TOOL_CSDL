@@ -188,6 +188,30 @@ tfoot td { font-weight: 700; background: #f2f5fa; position: sticky; bottom: 0; }
 .xa-card fieldset { border: 0; padding: 0; margin: 0 0 8px; }
 .xa-card legend { font-size: 12px; font-weight: 600; color: var(--primary); margin-bottom: 4px; }
 
+/* ---------- Tự động & hạn mức ---------- */
+#tab-auto { display: flex; flex-direction: column; gap: 14px; }
+.auto-grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 14px; align-items: start; }
+.auto-grid.even { grid-template-columns: 1fr 1fr; }
+.form-grid.compact { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin: 8px 0; }
+fieldset.plain { border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px 10px; margin: 10px 0 0; }
+fieldset.plain legend { font-size: 12px; font-weight: 600; color: var(--primary); padding: 0 4px; }
+.checklist.cols { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+.checklist.cols .check { font-size: 13px; margin: 0; }
+.slots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.slot { font-size: 12px; border-radius: 999px; padding: 2px 10px; background: #eef1f6; color: var(--muted); font-variant-numeric: tabular-nums; }
+.slot.done { background: var(--ok-soft); color: var(--ok); }
+.slot.running { background: var(--run-soft); color: var(--run); font-weight: 600; }
+.slot.missed { text-decoration: line-through; }
+.meter { position: relative; height: 8px; min-width: 90px; background: #e4e8ef; border-radius: 999px; overflow: hidden; margin-top: 3px; }
+.meter > span { position: absolute; inset: 0 auto 0 0; background: var(--primary); }
+.meter.warn > span { background: var(--warn); }
+.meter.full > span { background: var(--err); }
+.st-skipped { background: #eef1f6; color: var(--muted); }
+.ok-text { color: var(--ok); }
+.err-text { color: var(--err); }
+details.run-detail summary { cursor: pointer; color: var(--primary); font-size: 12px; }
+details.run-detail table { margin-top: 6px; font-size: 12px; }
+
 /* ---------- Modal / toast ---------- */
 .modal { position: fixed; inset: 0; background: rgba(15, 23, 42, .5); z-index: 50; display: grid; place-items: center; padding: 20px; }
 .modal-box { background: #fff; border-radius: 12px; width: min(1300px, 100%); max-height: 100%; display: flex; flex-direction: column; padding: 16px 18px; gap: 10px; }
@@ -199,6 +223,7 @@ tfoot td { font-weight: 700; background: #f2f5fa; position: sticky; bottom: 0; }
   .layout { grid-template-columns: 1fr; }
   .sidebar { position: static; max-height: none; }
   .stats-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .auto-grid, .auto-grid.even { grid-template-columns: 1fr; }
 }
 @media (max-width: 640px) {
   .topbar { flex-direction: column; align-items: flex-start; padding: 10px 16px; }

@@ -2,6 +2,7 @@
 
 const { parseIso, ddmmyyyy, mmddyyyy, splitRange, extractRows, findKey, maybeParse, sleep } = require('./util');
 const store = require('./store');
+const usage = require('./usage');
 
 const tokens = new Map(); // consumerKey -> { token, exp }
 const callbacks = []; // callback nhận trực tiếp tại /callback (khi server được public ra ngoài)
@@ -20,7 +21,7 @@ async function http(url, { method = 'GET', headers = {}, body, timeoutMs = 60000
     throw new Error(`Không kết nối được ${new URL(url).host}: ${reason}`);
   }
   const text = await res.text();
-  return { status: res.status, ok: res.ok, text, json: maybeParse(text) };
+  return { status: res.status, ok: res.ok, headers: res.headers, text, json: maybeParse(text) };
 }
 
 function httpError(label, r) {
@@ -65,10 +66,18 @@ async function getToken(settings, xa, force = false) {
 }
 
 // Gọi API có Bearer token; nếu 401 thì lấy token mới và thử lại 1 lần.
+// Mọi lượt gọi đều được đếm vào hạn mức của (xã, hệ thống) — xem lib/usage.js.
 async function api(settings, xa, url, opts = {}) {
+  const sys = usage.sysOf(settings, url);
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getToken(settings, xa, attempt > 0);
-    const r = await http(url, { ...opts, headers: { Accept: 'application/json', ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+    usage.before(settings, xa, sys);
+    let r;
+    try {
+      r = await http(url, { ...opts, headers: { Accept: 'application/json', ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
+    } finally {
+      usage.after(settings, xa, sys, r || null);
+    }
     if (r.status === 401 && attempt === 0) continue;
     return r;
   }

@@ -261,7 +261,7 @@ async function runTasks(keys, { scheduled = false } = {}) {
     renderIters();
     if (iterations > 1) log(`Vòng ${it}/${iterations}: ${sum.ok} thành công, ${sum.error} lỗi, ${sum.skipped} bỏ qua, ${fmtNum(sum.rows)} bản ghi, ${sum.calls} lượt gọi API`, 'l-info');
     if (guard && sum.skipped === keys.length) {
-      log('Mọi tác vụ đã chạm giới hạn lượt gọi hôm nay, dừng chạy lặp để không bị LGSP khóa.', 'l-err');
+      log('Mọi tác vụ trong vòng đều bị bỏ qua (LGSP đang chặn hoặc đã đủ giới hạn tự đặt), dừng chạy lặp.', 'l-err');
       break;
     }
   }
@@ -673,7 +673,7 @@ function exportHistory() {
 }
 
 // ---------- Tự động & hạn mức ----------
-const LIMIT_SOURCE = { manual: 'cố định', '429': 'dò từ lỗi 429', header: 'theo header LGSP', default: 'mặc định (chưa dò được)' };
+const LIMIT_SOURCE = { none: 'không giới hạn', manual: 'cố định', '429': 'dò từ lỗi 429', header: 'theo header LGSP', default: 'mặc định (chưa dò được)' };
 
 async function loadAutoTab() {
   const [auto, u] = await Promise.all([api('/api/auto'), api('/api/usage?days=30')]);
@@ -691,6 +691,8 @@ function fillAutoForm(s) {
   $('#a-end').value = s.auto_end;
   $('#a-days').value = s.auto_days;
   $('#a-conc').value = s.auto_concurrency;
+  $('#a-limit-on').checked = !!s.auto_limit_enabled;
+  toggleLimitFields();
   $('#a-pct').value = s.auto_safety_pct;
   $('#a-deflimit').value = s.auto_default_limit;
   $('#a-fixlimit').value = s.auto_daily_limit;
@@ -700,6 +702,10 @@ function fillAutoForm(s) {
   const xa = new Set(s.auto_xa || []);
   $('#a-xa').innerHTML = S.config.xa.map((x) =>
     `<label class="check"><input type="checkbox" value="${esc(x.id)}" ${xa.has(x.id) ? 'checked' : ''}> ${esc(x.name)}</label>`).join('') || '<p class="hint">Chưa có xã nào.</p>';
+}
+
+function toggleLimitFields() {
+  $$('#a-limit-fields input').forEach((el) => { el.disabled = !$('#a-limit-on').checked; });
 }
 
 function renderAutoStatus() {
@@ -721,6 +727,7 @@ function readAutoForm() {
     auto_end: $('#a-end').value,
     auto_days: Number($('#a-days').value),
     auto_concurrency: Number($('#a-conc').value),
+    auto_limit_enabled: $('#a-limit-on').checked,
     auto_safety_pct: Number($('#a-pct').value),
     auto_default_limit: Number($('#a-deflimit').value),
     auto_daily_limit: Number($('#a-fixlimit').value),
@@ -759,18 +766,20 @@ function renderUsage() {
     <thead><tr><th>Xã / phường</th><th>Hệ thống</th><th class="num">Đã gọi</th><th class="num">Lỗi</th><th>Đã dùng / giới hạn tự đặt</th>
       <th class="num">Hạn mức dò được</th><th>Trạng thái</th></tr></thead>
     <tbody>${rows.map((r) => {
-      const pct = Math.min(100, Math.round((r.used / r.limit) * 100));
+      const unlimited = r.limit == null;
+      const pct = unlimited ? 0 : Math.min(100, Math.round((r.used / r.limit) * 100));
       const cls = pct >= 100 ? 'full' : pct >= 80 ? 'warn' : '';
       const obs = r.observed.map((o) => `${o.day}: ${o.used}`).join(', ');
       return `<tr>
         <td class="nw">${esc(r.xaName)}</td><td class="nw">${esc(r.sysName)}</td>
         <td class="num">${fmtNum(r.calls)}</td><td class="num">${r.err ? `<span class="err-text">${fmtNum(r.err)}</span>` : 0}</td>
-        <td><span class="nw">${fmtNum(r.used)} / ${fmtNum(r.limit)}</span> <span class="hint">(${LIMIT_SOURCE[r.limitSource] || r.limitSource})</span>
-          <div class="meter ${cls}"><span style="width:${pct}%"></span></div></td>
+        <td>${unlimited ? `<span class="nw">${fmtNum(r.used)}</span> <span class="hint">(không giới hạn)</span>`
+          : `<span class="nw">${fmtNum(r.used)} / ${fmtNum(r.limit)}</span> <span class="hint">(${LIMIT_SOURCE[r.limitSource] || r.limitSource})</span>
+          <div class="meter ${cls}"><span style="width:${pct}%"></span></div>`}</td>
         <td class="num" title="${esc(obs ? 'Các lần quan sát: ' + obs : '')}">${r.quota ? fmtNum(r.quota) : '<span class="hint">chưa biết</span>'}</td>
         <td>${r.blockedUntil
           ? `<span class="badge-st st-error">Bị LGSP chặn đến ${fmtTime(r.blockedUntil)}</span> <button class="btn sm" data-act="unblock" data-xa="${esc(r.xaId)}" data-sys="${esc(r.sys)}" title="Chỉ bấm khi chắc LGSP đã mở lại (ví dụ đã được nâng hạn mức)">Bỏ chặn</button>`
-          : r.used >= r.limit ? '<span class="badge-st st-queued">Đủ giới hạn, tự động dừng</span>' : '<span class="badge-st st-ok">Còn lượt</span>'}</td>
+          : !unlimited && r.used >= r.limit ? '<span class="badge-st st-queued">Đủ giới hạn, tự động dừng</span>' : '<span class="badge-st st-ok">Còn lượt</span>'}</td>
       </tr>`;
     }).join('')}</tbody></table>` : '<div class="empty">Chưa có xã nào.</div>';
 
@@ -910,6 +919,7 @@ function bindEvents() {
   }, 15000);
   $('#tab-auto').addEventListener('input', (e) => { if (e.target.closest('.auto-grid > .card:first-child')) S.autoFormDirty = true; });
   $('#auto-save').onclick = () => saveAuto().catch((e) => toast(e.message));
+  $('#a-limit-on').addEventListener('change', toggleLimitFields);
   $('#auto-run').onclick = async () => {
     if (!confirm('Chạy ngay 1 lượt đồng bộ với các mục và xã đã lưu? (Lượt này cũng tính vào giới hạn trong ngày)')) return;
     await api('/api/auto/run', { method: 'POST' }).catch((e) => toast(e.message));

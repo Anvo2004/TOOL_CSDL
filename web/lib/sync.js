@@ -155,12 +155,12 @@ function status(settings) {
 }
 
 const AUTO_KEYS = ['auto_enabled', 'auto_runs_per_day', 'auto_start', 'auto_end', 'auto_days', 'auto_items', 'auto_xa',
-  'auto_concurrency', 'auto_safety_pct', 'auto_default_limit', 'auto_daily_limit'];
+  'auto_concurrency', 'auto_limit_enabled', 'auto_safety_pct', 'auto_default_limit', 'auto_daily_limit'];
 
 async function saveAutoSettings(input) {
   const p = {};
   for (const k of AUTO_KEYS) if (k in input) p[k] = input[k];
-  if ('auto_enabled' in p) p.auto_enabled = !!p.auto_enabled;
+  for (const k of ['auto_enabled', 'auto_limit_enabled']) if (k in p) p[k] = !!p[k];
   const num = (k, lo, hi) => { if (k in p) p[k] = Math.min(hi, Math.max(lo, Math.round(Number(p[k]) || 0))); };
   num('auto_runs_per_day', 1, 48);
   num('auto_days', 1, 31);

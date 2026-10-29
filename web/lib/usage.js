@@ -50,8 +50,9 @@ function bump(xaId, sys, inc) {
   return c;
 }
 
-// Giới hạn số lượt mỗi ngày mà đồng bộ tự động được dùng cho một (xã, hệ thống).
+// Giới hạn số lượt mỗi ngày mà đồng bộ tự động / chạy lặp được dùng cho một (xã, hệ thống); null = không giới hạn.
 function limitFor(settings, xaId, sys) {
+  if (!settings.auto_limit_enabled) return { limit: null, source: 'none' };
   const manual = Number(settings.auto_daily_limit) || 0;
   if (manual > 0) return { limit: manual, source: 'manual' };
   const q = quotas.get(`${xaId}|${sys}`);
@@ -70,6 +71,7 @@ function skipReason(settings, xa, sys, cost) {
   const b = blockedUntil(xa.id, sys);
   if (b) return `LGSP đang khóa ${sysName(sys)} do hết hạn mức, gọi lại được sau ${fmtVN(b)}`;
   const { limit } = limitFor(settings, xa.id, sys);
+  if (limit == null) return null;
   const left = limit - used(counts(xa.id, sys));
   if (left < cost) return `Còn ${Math.max(0, left)}/${limit} lượt tự đặt hôm nay cho ${sysName(sys)}, không đủ cho tác vụ (cần ~${cost})`;
   return null;
@@ -82,7 +84,7 @@ function before(settings, xa, sys) {
   const m = meter.getStore();
   if (m && m.limited) {
     const { limit } = limitFor(settings, xa.id, sys);
-    if (used(counts(xa.id, sys)) >= limit) throw new Error(`Đã dùng hết giới hạn tự đặt ${limit} lượt/ngày cho ${sysName(sys)}, dừng để không bị khóa`);
+    if (limit != null && used(counts(xa.id, sys)) >= limit) throw new Error(`Đã dùng hết giới hạn tự đặt ${limit} lượt/ngày cho ${sysName(sys)}, dừng để không bị khóa`);
   }
 }
 

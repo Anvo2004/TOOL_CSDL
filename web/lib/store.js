@@ -40,6 +40,7 @@ const DEFAULT_SETTINGS = {
   auto_xa: [],
   auto_concurrency: 2,
   auto_safety_pct: 80,
+  auto_limit_enabled: false, // tắt = không giới hạn lượt gọi mỗi ngày
   auto_default_limit: 50,
   auto_daily_limit: 0,
 };
@@ -47,6 +48,8 @@ const DEFAULT_SETTINGS = {
 const SECRET_FIELDS = ['secret', 'organKey', 'gopy_pass', 'csdlpx_password'];
 const MASK = '••••••';
 const CHUNK_CHARS = 4_000_000; // MongoDB giới hạn 16MB/document nên chia dữ liệu thành nhiều phần
+// Chỉ giữ các dòng lịch sử / lượt đồng bộ mới nhất. Số lượt gọi được đếm riêng (usage) nên không mất khi xóa.
+const KEEP_ROWS = 200;
 
 const useMongo = !!process.env.MONGODB_URI;
 let db = null;
@@ -168,10 +171,21 @@ async function loadResult(xaId, itemKey) {
 }
 
 // ---------- Lịch sử ----------
-async function appendHistory(entry) {
-  if (useMongo) await db.collection('history').insertOne({ ...entry });
-  else fs.appendFileSync(HISTORY_FILE, JSON.stringify(entry) + '\n', 'utf8');
+// Ghi thêm một dòng rồi xóa các dòng cũ hơn KEEP_ROWS dòng mới nhất.
+async function appendCapped(collection, file, entry) {
+  if (useMongo) {
+    const col = db.collection(collection);
+    await col.insertOne({ ...entry });
+    const cut = await col.find({}, { projection: { startedAt: 1 } }).sort({ startedAt: -1 }).skip(KEEP_ROWS).limit(1).next();
+    if (cut) await col.deleteMany({ startedAt: { $lte: cut.startedAt } });
+    return;
+  }
+  fs.appendFileSync(file, JSON.stringify(entry) + '\n', 'utf8');
+  const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
+  if (lines.length > KEEP_ROWS) fs.writeFileSync(file, lines.slice(-KEEP_ROWS).join('\n') + '\n', 'utf8');
 }
+
+const appendHistory = (entry) => appendCapped('history', HISTORY_FILE, entry);
 
 async function readHistory(limit = 1000) {
   if (useMongo) return db.collection('history').find({}, { projection: { _id: 0 } }).sort({ startedAt: -1 }).limit(limit).toArray();
@@ -235,10 +249,7 @@ async function saveQuota(q) {
   fs.writeFileSync(QUOTA_FILE, JSON.stringify(all, null, 2), 'utf8');
 }
 
-async function appendSyncRun(run) {
-  if (useMongo) await db.collection('sync_runs').insertOne({ ...run });
-  else fs.appendFileSync(RUNS_FILE, JSON.stringify(run) + '\n', 'utf8');
-}
+const appendSyncRun = (run) => appendCapped('sync_runs', RUNS_FILE, run);
 
 async function readSyncRuns(limit = 50) {
   if (useMongo) return db.collection('sync_runs').find({}, { projection: { _id: 0 } }).sort({ startedAt: -1 }).limit(limit).toArray();
@@ -260,7 +271,7 @@ function exportFiles(result) {
 }
 
 module.exports = {
-  ROOT, EXPORT_DIR, init, storageName, loadConfig, saveConfig, maskedConfig, updateConfig, patchSettings,
+  ROOT, EXPORT_DIR, KEEP_ROWS, init, storageName, loadConfig, saveConfig, maskedConfig, updateConfig, patchSettings,
   saveResult, loadResult, appendHistory, readHistory, latestStats, exportFiles,
   incUsage, readUsage, loadQuotas, saveQuota, appendSyncRun, readSyncRuns,
 };

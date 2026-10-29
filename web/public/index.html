@@ -82,8 +82,9 @@
             <input type="number" id="opt-iter" class="input num" min="1" max="1000" value="1"> vòng</label>
           <label class="inline">Nghỉ giữa các request
             <input type="number" id="opt-delay" class="input num" min="0" max="3600" step="0.5" value="0"> giây</label>
-          <p class="hint">Giống Runner của Postman. Khi chạy lặp (hơn 1 vòng hoặc có nghỉ), mỗi tác vụ chỉ chạy nếu còn đủ lượt trong
-            giới hạn mỗi ngày ở tab <b>Tự động &amp; hạn mức</b>, nên không bị LGSP khóa (429). Hết lượt thì tự dừng.</p>
+          <p class="hint">Giống Runner của Postman. Mặc định không giới hạn số lượt gọi. Khi LGSP báo hết hạn mức (429), các tác vụ
+            của hệ thống đó được bỏ qua đến 7:00 sáng hôm sau; nếu cả vòng đều bị bỏ qua thì tự dừng.
+            Muốn đặt giới hạn lượt mỗi ngày: tab <b>Tự động &amp; hạn mức</b>.</p>
         </div>
         <p class="hint" id="schedule-info"></p>
       </section>
@@ -182,16 +183,17 @@
         <fieldset class="plain"><legend>Xã / phường <span class="hint">(không chọn = tất cả)</span></legend><div id="a-xa" class="checklist cols"></div></fieldset>
 
         <fieldset class="plain"><legend>Giới hạn lượt gọi mỗi ngày (mỗi xã, mỗi hệ thống)</legend>
-          <div class="form-grid compact">
+          <label class="check"><input type="checkbox" id="a-limit-on"> Bật giới hạn (tắt = không giới hạn, chạy đến khi LGSP báo hết hạn mức)</label>
+          <div class="form-grid compact" id="a-limit-fields">
             <label>Dùng tối đa % hạn mức dò được<input class="input" type="number" id="a-pct" min="10" max="100"></label>
             <label>Giới hạn khi chưa dò được hạn mức<input class="input" type="number" id="a-deflimit" min="1"></label>
             <label>Giới hạn cố định (0 = tự động)<input class="input" type="number" id="a-fixlimit" min="0"></label>
           </div>
           <p class="hint">
             Hạn mức LGSP tính theo ngày, đặt lại lúc <b>7:00 sáng</b> (00:00 UTC), nên đặt khung giờ chạy từ 7:00 trở đi.
-            Web tự dò hạn mức: lần đầu bị LGSP chặn (HTTP 429), số lượt đã gọi trước đó được ghi lại làm hạn mức,
-            sau đó đồng bộ tự động chỉ dùng tối đa % ở trên, phần còn lại để dành cho truy vấn tay.
-            Khi đang bị chặn, web không gửi thêm yêu cầu cho đến giờ được mở lại.
+            Web tự dò hạn mức: lần đầu bị LGSP chặn (HTTP 429), số lượt đã gọi trước đó được ghi lại làm hạn mức.
+            Khi bật giới hạn, đồng bộ tự động và chạy lặp chỉ dùng tối đa % ở trên, phần còn lại để dành cho truy vấn tay.
+            Dù bật hay tắt, khi đang bị LGSP chặn web không gửi thêm yêu cầu cho đến giờ được mở lại (gửi cũng chỉ nhận 429).
           </p>
         </fieldset>
       </section>
@@ -229,7 +231,7 @@
   <main id="tab-history" class="tab-page hidden">
     <section class="card">
       <div class="table-toolbar">
-        <h2>Lịch sử truy vấn</h2>
+        <h2>Lịch sử truy vấn <span class="hint">(giữ 200 dòng mới nhất; số lượt gọi vẫn được đếm đầy đủ ở tab Tự động &amp; hạn mức)</span></h2>
         <div class="toolbar-right">
           <input type="search" id="hist-search" class="input" placeholder="Lọc theo xã, mục, lỗi...">
           <button class="btn" id="hist-refresh">↻ Tải lại</button>

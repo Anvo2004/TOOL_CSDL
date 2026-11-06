@@ -2,6 +2,7 @@
 // (trình duyệt không gọi thẳng được apiv2.danang.gov.vn vì CORS và để giữ kín khóa/mật khẩu).
 // Chạy trên máy: node server.js → http://localhost:3000
 // Triển khai (Render): đặt biến môi trường MONGODB_URI, APP_USERNAME, APP_PASSWORD.
+// APP_USERNAME / APP_PASSWORD là tài khoản quản trị; quản trị tạo thêm tài khoản riêng cho từng xã (lib/users.js).
 
 const http = require('http');
 const fs = require('fs');
@@ -11,6 +12,8 @@ const { CATEGORIES, ITEMS } = require('./lib/catalog');
 const { getToken, recordCallback } = require('./lib/lgsp');
 const store = require('./lib/store');
 const usage = require('./lib/usage');
+const policy = require('./lib/policy');
+const users = require('./lib/users');
 const sync = require('./lib/sync');
 const { flattenRow, columnsOf, toCsv, slug } = require('./lib/util');
 
@@ -39,24 +42,35 @@ function parseCookies(header = '') {
   return Object.fromEntries(header.split(';').map((p) => p.trim().split('=')).filter((p) => p[0]).map(([k, ...v]) => [k, decodeURIComponent(v.join('='))]));
 }
 
+// Phiên: { u, role: 'admin' | 'xa', xaId (tài khoản xã), exp }.
 function readSession(req) {
-  if (!AUTH_ON) return { u: 'local' };
+  if (!AUTH_ON) return { u: 'local', role: 'admin' };
   const raw = parseCookies(req.headers.cookie).sid;
   if (!raw) return null;
   const [payload, sig] = raw.split('.');
   const expect = sign(payload || '');
   if (!sig || sig.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+  let s;
   try {
-    const s = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    return s.exp > Date.now() ? s : null;
+    s = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
   } catch {
     return null;
   }
+  if (!(s.exp > Date.now())) return null;
+  if (s.role !== 'xa') return { ...s, role: 'admin' };
+  // Tài khoản xã: kiểm tra lại mỗi lần để khóa / đổi mật khẩu / đổi xã có hiệu lực ngay.
+  const u = users.sessionUser(s.u, s.ver);
+  return u ? { ...s, xaId: u.xaId } : null;
 }
 
 function sessionCookie(req, value, maxAgeSec) {
   const secure = req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : '';
   return `sid=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSec}${secure}`;
+}
+
+function issueSession(req, data) {
+  const payload = Buffer.from(JSON.stringify({ ...data, exp: Date.now() + SESSION_HOURS * 3600000 })).toString('base64url');
+  return { 'Set-Cookie': sessionCookie(req, `${payload}.${sign(payload)}`, SESSION_HOURS * 3600) };
 }
 
 const clientIp = (req) => String(req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
@@ -65,16 +79,17 @@ async function handleLogin(req, res) {
   const ip = clientIp(req);
   const f = failedLogins.get(ip);
   if (f && f.n >= 8 && f.until > Date.now()) return send(res, 429, { error: 'Sai quá nhiều lần, thử lại sau 15 phút' });
-  const { username, password } = await readJson(req);
-  const ok = crypto.timingSafeEqual(sha(username), sha(AUTH_USER)) & crypto.timingSafeEqual(sha(password), sha(AUTH_PASS));
-  if (!ok) {
+  const { username = '', password = '' } = await readJson(req);
+  const isAdmin = AUTH_ON && (crypto.timingSafeEqual(sha(username), sha(AUTH_USER)) & crypto.timingSafeEqual(sha(password), sha(AUTH_PASS)));
+  const u = isAdmin ? null : users.verify(username, password);
+  if (!isAdmin && !u) {
     const n = f && f.until > Date.now() ? f.n + 1 : 1;
     failedLogins.set(ip, { n, until: Date.now() + 15 * 60000 });
     return send(res, 401, { error: 'Sai tên đăng nhập hoặc mật khẩu' });
   }
   failedLogins.delete(ip);
-  const payload = Buffer.from(JSON.stringify({ u: username, exp: Date.now() + SESSION_HOURS * 3600000 })).toString('base64url');
-  send(res, 200, { ok: true }, { 'Set-Cookie': sessionCookie(req, `${payload}.${sign(payload)}`, SESSION_HOURS * 3600) });
+  if (u) await users.touchLogin(u);
+  send(res, 200, { ok: true }, issueSession(req, isAdmin ? { u: AUTH_USER, role: 'admin' } : { u: u._id, role: 'xa', ver: u.ver || 0 }));
 }
 
 // ---------- Tiện ích HTTP ----------
@@ -101,52 +116,81 @@ const readJson = async (req) => {
   return t ? JSON.parse(t) : {};
 };
 
+const forbidden = (msg) => Object.assign(new Error(msg), { status: 403 });
+
 function findXa(cfg, xaId) {
   const xa = cfg.xa.find((x) => x.id === xaId);
   if (!xa) throw Object.assign(new Error(`Không tìm thấy xã: ${xaId}`), { status: 404 });
   return xa;
 }
 
+// ---------- Phân quyền: tài khoản xã chỉ làm việc với xã của mình ----------
+const isAdmin = (session) => session.role === 'admin';
+const scopeIds = (session) => (isAdmin(session) ? null : [session.xaId]); // null = mọi xã
+
+function requireAdmin(session) {
+  if (!isAdmin(session)) throw forbidden('Chỉ tài khoản quản trị được thực hiện');
+}
+
+function allowXa(session, xaId) {
+  if (!isAdmin(session) && xaId !== session.xaId) throw forbidden('Tài khoản này chỉ được dùng cho xã của mình');
+  return xaId;
+}
+
+async function scopedXa(session) {
+  const cfg = await store.loadConfig();
+  const ids = scopeIds(session);
+  return { cfg, xas: cfg.xa.filter((x) => !ids || ids.includes(x.id)) };
+}
+
 // ---------- Truy vấn ----------
-async function handleQuery(req, res) {
+async function handleQuery(req, res, session) {
   const { xaId, itemKey, from, to, autoSave, guard } = await readJson(req);
+  allowXa(session, xaId);
   const cfg = await store.loadConfig();
   const xa = findXa(cfg, xaId);
   const item = ITEMS.get(itemKey);
   if (!item) return send(res, 404, { error: `Không có mục ${itemKey}` });
 
-  // Chạy lặp: không bắt đầu tác vụ nếu không đủ lượt trong giới hạn tự đặt, để không bị LGSP khóa giữa chừng.
-  if (guard) {
-    const days = item.dated && from && to ? Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 : 1;
-    const reason = usage.skipReason(cfg.settings, xa, item.category.id, sync.estimateCost(item, days));
-    if (reason) return send(res, 200, { xaId, itemKey, ok: false, skipped: true, count: 0, calls: 0, error: reason, warnings: [], logs: [] });
-  }
+  // Không bắt đầu tác vụ ngoài khung giờ, khi LGSP đang khóa, hoặc khi không còn đủ lượt trong giờ.
+  const days = item.dated && from && to ? Math.round((Date.parse(to) - Date.parse(from)) / 86400000) + 1 : 1;
+  const reason = sync.taskReason(cfg.settings, xa, item, sync.estimateCost(item, days));
+  if (reason) return send(res, 200, { xaId, itemKey, ok: false, skipped: true, count: 0, calls: 0, error: reason, warnings: [], logs: [] });
   const logs = [];
   const entry = await sync.executeTask({ settings: cfg.settings, xa, item, from, to, autoSave, source: guard ? 'runner' : 'manual', log: (m) => logs.push(m) });
   send(res, 200, { ...entry, logs });
 }
 
-// ---------- Đồng bộ tự động & hạn mức ----------
-async function handleAuto(res) {
-  const { settings } = await store.loadConfig();
-  const auto = Object.fromEntries(sync.AUTO_KEYS.map((k) => [k, settings[k]]));
-  send(res, 200, { settings: auto, ...sync.status(settings) });
+// ---------- Đồng bộ tự động & lượt gọi ----------
+async function handleAuto(url, res, session) {
+  const { cfg, xas } = await scopedXa(session);
+  const xaId = allowXa(session, url.searchParams.get('xa') || (xas[0] || {}).id);
+  const xa = xaId && findXa(cfg, xaId);
+  send(res, 200, {
+    selected: xa ? sync.status(cfg.settings, xa) : null,
+    overview: isAdmin(session) ? cfg.xa.map((x) => {
+      const st = sync.status(cfg.settings, x);
+      return { xaId: x.id, xaName: x.name, enabled: st.auto.enabled, times: st.auto.times, items: st.auto.items.length, next: st.next, running: st.running, lastRun: st.lastRun };
+    }) : [],
+  });
 }
 
-async function handleUsage(url, res) {
-  const cfg = await store.loadConfig();
+async function handleUsage(url, res, session) {
+  const { cfg, xas } = await scopedXa(session);
+  const ids = scopeIds(session);
   const days = Math.min(400, Math.max(1, Number(url.searchParams.get('days')) || 30));
   send(res, 200, {
     quotaDay: usage.quotaDay(),
     resetAt: new Date(usage.nextUtcMidnight()).toISOString(),
-    today: usage.snapshot(cfg.settings, cfg.xa),
-    ...(await usage.report(days)),
-    runs: await store.readSyncRuns(Number(url.searchParams.get('runs')) || 30),
+    today: usage.snapshot(xas),
+    ...(await usage.report(days, ids)),
+    runs: await store.readSyncRuns(Number(url.searchParams.get('runs')) || 30, ids),
+    policy: policy.describe(cfg.settings, [...ITEMS.values()], xas),
   });
 }
 
-async function handleResult(url, res) {
-  const r = await store.loadResult(url.searchParams.get('xa'), url.searchParams.get('item'));
+async function handleResult(url, res, session) {
+  const r = await store.loadResult(allowXa(session, url.searchParams.get('xa')), url.searchParams.get('item'));
   if (!r) return send(res, 404, { error: 'Chưa có dữ liệu, hãy truy vấn trước' });
   const q = (url.searchParams.get('q') || '').toLowerCase();
   let flat = r.rows.map(flattenRow);
@@ -157,8 +201,8 @@ async function handleResult(url, res) {
   send(res, 200, { ...meta, filtered: flat.length, columns: columnsOf(flat), rows: flat.slice(offset, offset + limit) });
 }
 
-async function handleDownload(url, res) {
-  const r = await store.loadResult(url.searchParams.get('xa'), url.searchParams.get('item'));
+async function handleDownload(url, res, session) {
+  const r = await store.loadResult(allowXa(session, url.searchParams.get('xa')), url.searchParams.get('item'));
   if (!r) return send(res, 404, { error: 'Chưa có dữ liệu' });
   const fmt = url.searchParams.get('format') === 'json' ? 'json' : 'csv';
   const name = `${slug(r.xaName)}_${slug(r.itemName)}.${fmt}`;
@@ -166,6 +210,41 @@ async function handleDownload(url, res) {
   send(res, 200, body, {
     'Content-Type': fmt === 'json' ? 'application/json; charset=utf-8' : 'text/csv; charset=utf-8',
     'Content-Disposition': `attachment; filename="${name}"`,
+  });
+}
+
+// ---------- Tài khoản ----------
+async function handleUsers(req, res, p, session) {
+  requireAdmin(session);
+  const name = decodeURIComponent(p.slice('/api/users/'.length));
+  if (req.method === 'GET' && p === '/api/users') return send(res, 200, users.list());
+  if (req.method === 'POST' && p === '/api/users') {
+    const body = await readJson(req);
+    findXa(await store.loadConfig(), body.xaId);
+    return send(res, 200, await users.create(body, [AUTH_USER]));
+  }
+  if (req.method === 'POST' && p.endsWith('/password')) {
+    const { password } = await readJson(req);
+    return send(res, 200, await users.resetPassword(name.replace(/\/password$/, ''), password));
+  }
+  if (req.method === 'PUT' && name) {
+    const body = await readJson(req);
+    if (body.xaId != null) findXa(await store.loadConfig(), body.xaId);
+    return send(res, 200, await users.update(name, body));
+  }
+  if (req.method === 'DELETE' && name) {
+    await users.remove(name);
+    return send(res, 200, { ok: true });
+  }
+  send(res, 404, { error: 'Not found' });
+}
+
+async function handleInfo(res, session) {
+  const { cfg, xas } = await scopedXa(session);
+  send(res, 200, {
+    storage: store.storageName(), auth: AUTH_ON, user: session.u, role: session.role, xaId: session.xaId || null,
+    xaName: session.xaId ? (xas[0] || {}).name || session.xaId : null,
+    policy: policy.describe(cfg.settings, [...ITEMS.values()], xas),
   });
 }
 
@@ -195,48 +274,62 @@ const server = http.createServer(async (req, res) => {
       if (p === '/' || p === '/index.html') return serveStatic('/login.html', res);
       return serveStatic(p, res);
     }
+    const ids = scopeIds(session);
 
-    if (req.method === 'GET' && p === '/api/info') return send(res, 200, { storage: store.storageName(), auth: AUTH_ON, user: session.u });
+    if (req.method === 'GET' && p === '/api/info') return await handleInfo(res, session);
+    if (req.method === 'POST' && p === '/api/password') {
+      if (isAdmin(session)) throw forbidden('Mật khẩu quản trị đặt bằng biến môi trường APP_PASSWORD trên máy chủ');
+      const { current, next } = await readJson(req);
+      const u = await users.changePassword(session.u, current, next);
+      return send(res, 200, { ok: true }, issueSession(req, { u: u._id, role: 'xa', ver: u.ver }));
+    }
     if (req.method === 'GET' && p === '/api/catalog') return send(res, 200, CATEGORIES);
-    if (req.method === 'GET' && p === '/api/config') return send(res, 200, await store.maskedConfig());
+    if (req.method === 'GET' && p === '/api/config') return send(res, 200, await store.maskedConfig(ids));
     if (req.method === 'PUT' && p === '/api/config') {
-      await store.updateConfig(await readJson(req));
-      return send(res, 200, await store.maskedConfig());
+      const body = await readJson(req);
+      if (isAdmin(session)) await store.updateConfig(body);
+      else await store.updateXa(session.xaId, (body.xa || []).find((x) => x.id === session.xaId) || {});
+      return send(res, 200, await store.maskedConfig(ids));
     }
     if (req.method === 'POST' && p === '/api/test-token') {
       const { xaId } = await readJson(req);
       const cfg = await store.loadConfig();
       try {
-        await getToken(cfg.settings, findXa(cfg, xaId), true);
+        await getToken(cfg.settings, findXa(cfg, allowXa(session, xaId)), true);
         return send(res, 200, { ok: true });
       } catch (e) {
         return send(res, 200, { ok: false, error: e.message });
       }
     }
-    if (req.method === 'POST' && p === '/api/query') return await handleQuery(req, res);
-    if (req.method === 'GET' && p === '/api/result') return await handleResult(url, res);
-    if (req.method === 'GET' && p === '/api/download') return await handleDownload(url, res);
-    if (req.method === 'GET' && p === '/api/history') return send(res, 200, await store.readHistory(Number(url.searchParams.get('limit')) || 500));
-    if (req.method === 'GET' && p === '/api/stats') return send(res, 200, await store.latestStats());
-    if (req.method === 'GET' && p === '/api/auto') return await handleAuto(res);
+    if (req.method === 'POST' && p === '/api/query') return await handleQuery(req, res, session);
+    if (req.method === 'GET' && p === '/api/result') return await handleResult(url, res, session);
+    if (req.method === 'GET' && p === '/api/download') return await handleDownload(url, res, session);
+    if (req.method === 'GET' && p === '/api/history') return send(res, 200, await store.readHistory(Number(url.searchParams.get('limit')) || 500, ids));
+    if (req.method === 'GET' && p === '/api/stats') return send(res, 200, await store.latestStats(ids));
+    if (req.method === 'GET' && p === '/api/auto') return await handleAuto(url, res, session);
     if (req.method === 'PUT' && p === '/api/auto') {
-      await sync.saveAutoSettings(await readJson(req));
-      return await handleAuto(res);
+      const body = await readJson(req);
+      await sync.saveAuto(allowXa(session, body.xaId), body);
+      url.searchParams.set('xa', body.xaId);
+      return await handleAuto(url, res, session);
     }
     if (req.method === 'POST' && p === '/api/auto/run') {
-      sync.runSync({ trigger: 'manual' }).catch((e) => console.error('Lỗi đồng bộ:', e.message));
+      const { xaId } = await readJson(req);
+      allowXa(session, xaId);
+      sync.runSync({ xaId, trigger: 'manual' }).catch((e) => console.error('Lỗi đồng bộ:', e.message));
       return send(res, 202, { started: true });
     }
-    if (req.method === 'GET' && p === '/api/usage') return await handleUsage(url, res);
+    if (req.method === 'GET' && p === '/api/usage') return await handleUsage(url, res, session);
     if (req.method === 'POST' && p === '/api/usage/unblock') {
       const { xaId, sys } = await readJson(req);
-      usage.unblock(xaId, sys);
+      usage.unblock(allowXa(session, xaId), sys);
       return send(res, 200, { ok: true });
     }
+    if (p === '/api/users' || p.startsWith('/api/users/')) return await handleUsers(req, res, p, session);
     if (req.method === 'GET' && !p.startsWith('/api/')) return serveStatic(p === '/login.html' ? '/' : p, res);
     send(res, 404, { error: 'Not found' });
   } catch (e) {
-    console.error(e);
+    if (!e.status) console.error(e);
     send(res, e.status || 500, { error: e.message });
   }
 });
@@ -245,7 +338,7 @@ const server = http.createServer(async (req, res) => {
 server.requestTimeout = 0;
 
 store.init().then(async () => {
-  await usage.init();
+  await Promise.all([usage.init(), policy.init(), users.init()]);
   await sync.startScheduler();
   server.listen(PORT, HOST, () => {
     console.log(`Công cụ truy vấn LGSP đang chạy: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);

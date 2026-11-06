@@ -140,8 +140,9 @@ function findKey(obj, re, depth = 0) {
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const fmtVN = (t) => new Date(t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false });
 
 module.exports = {
   pad, parseIso, ddmmyyyy, mmddyyyy, isoDate, splitRange,
-  maybeParse, extractRows, flattenRow, columnsOf, toCsv, slug, findKey, sleep,
+  maybeParse, extractRows, flattenRow, columnsOf, toCsv, slug, findKey, sleep, fmtVN,
 };

@@ -24,18 +24,32 @@ Sau đó mở http://localhost:3000. Trên Windows có thể bấm đúp `start.
 - **Xem**: mở dữ liệu chi tiết, tìm kiếm, tải CSV/JSON/Excel.
 - **Excel toàn bộ dữ liệu**: một file gồm sheet "Thong ke" và mỗi mục một sheet.
 - **Tự động lưu file**: sau mỗi truy vấn thành công, lưu CSV và JSON vào `exports/<ngày>/`.
-- **Chạy lặp N vòng, nghỉ X giây giữa các request** (giống Runner của Postman): có bảng kết quả từng vòng, xuất Excel. Khi chạy lặp, tác vụ chỉ chạy nếu còn đủ lượt trong giới hạn mỗi ngày (tab Tự động & hạn mức), hết lượt thì tự dừng nên không bị LGSP khóa.
+- **Chạy lặp N vòng, nghỉ X giây giữa các request** (giống Runner của Postman): có bảng kết quả từng vòng, xuất Excel. Vẫn theo quy định kết nối bên dưới: tác vụ ngoài khung giờ hoặc khi đã dùng đủ lượt trong 60 phút thì bị bỏ qua, cả vòng bị bỏ qua thì tự dừng.
 - **Tự động truy vấn lại mỗi N phút**: chạy lại theo chu kỳ trong lúc trang còn mở, khoảng ngày nhanh (7 ngày, tháng này...) sẽ được tính lại mỗi lần.
-- Tab **Lịch sử** ghi lại mọi lần chạy (`data/history.jsonl`).
+- Tab **Lịch sử** ghi lại các lần chạy (`data/history.jsonl`), mỗi xã giữ 200 dòng mới nhất.
+
+## Quy định kết nối Trục LGSP (CV 7779/SKHCN-CNTT, từ 05/11/2026)
+
+Web luôn áp dụng ở phía máy chủ (tài khoản xã không tắt được, truy vấn tay, chạy lặp và đồng bộ tự động đều phải theo):
+
+- **Số lượt kết nối mỗi xã**: quy định 50 lần/giờ cho mỗi cơ quan. Web đếm theo từng xã (mỗi xã một khóa LGSP), cửa sổ trượt 60 phút, tính cả lượt lấy token, mặc định dừng ở **45 lượt** để chừa phần cho Postman / thử token (LGSP đếm chung mọi nơi dùng cùng khóa). Bộ đếm được lưu nên khởi động lại máy chủ không bị mất.
+- **Khung giờ**: 07:00–18:00 dành cho dịch vụ ưu tiên (giải quyết TTHC, Myportal, Giao nhiệm vụ, Lịch cơ quan); các hệ thống còn lại kết nối 18:00–07:00. Mặc định: Lịch công tác và Việc VPUB chạy ban ngày, các mục còn lại (văn bản đến/đi, góp ý, Cổng TTĐT, CSDL Phường xã...) chạy ngoài giờ. Mỗi mục có nhãn <code>07–18h</code> / <code>18–07h</code> trên giao diện.
+- Truy vấn tay ngoài khung giờ, hoặc khi không còn đủ lượt trong 60 phút, bị bỏ qua kèm giờ chạy lại được. Tác vụ cần nhiều lượt hơn cả giới hạn giờ (ví dụ QLVBDH khoảng ngày rất dài) phải chia nhỏ khoảng ngày.
+- Quản trị chỉnh số lượt và khung giờ từng mục ở tab **Cấu hình**; chỉ nâng khi đã có văn bản chấp thuận của Sở KH&CN.
+
+## Tài khoản
+
+- **Quản trị**: `APP_USERNAME` / `APP_PASSWORD` (biến môi trường). Thấy mọi xã, sửa cấu hình chung, quy định kết nối, thêm/xóa xã, tạo tài khoản xã.
+- **Tài khoản xã**: quản trị tạo ở tab **Cấu hình → Tài khoản đăng nhập của các xã** (để trống mật khẩu thì web tự tạo, chỉ hiện một lần). Mỗi tài khoản gắn với một xã, chỉ thấy xã đó: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối của xã, xem lịch sử và lượt gọi. Xã tự đổi mật khẩu bằng nút **Đổi mật khẩu**.
+- Mật khẩu lưu dạng băm scrypt. Khóa, đặt lại mật khẩu hoặc xóa tài khoản thì phiên đang đăng nhập bị thoát ngay. Sai mật khẩu 8 lần thì khóa đăng nhập 15 phút theo địa chỉ IP.
 
 ## Tự động & hạn mức
 
 Tab **Tự động & hạn mức**:
 
-- **Đếm lượt gọi**: mọi lượt gọi API LGSP (thủ công lẫn tự động) được đếm theo ngày, xã và hệ thống: thành công, lỗi, bị chặn (429). Có tổng hôm nay / 7 ngày / 30 ngày, bảng theo ngày, theo xã, xuất Excel. Tab Lịch sử có thêm cột "Lượt gọi API" và "Nguồn".
-- **Đồng bộ tự động**: bật lên thì máy chủ tự lấy các mục đã chọn (mặc định Văn bản đến/đi, Lịch công tác, Góp ý, Việc VPUB) cho các xã đã chọn, N lượt mỗi ngày, chia đều trong khung giờ (giờ Việt Nam), lấy dữ liệu N ngày gần nhất và lưu vào CSDL. Mỗi lượt ghi lại số tác vụ thành công / lỗi / bỏ qua và số lượt gọi API. Máy chủ phải đang chạy thì lịch mới chạy (Render gói Starter luôn chạy; gói Free bị ngủ).
-- **Hạn mức**: LGSP đặt lại hạn mức lúc 7:00 sáng (00:00 UTC), tính riêng cho từng API của mỗi khóa. Lần đầu bị 429, số lượt đã gọi trước đó được ghi làm hạn mức dò được (lấy giá trị lớn nhất trong 10 lần gần nhất); nếu LGSP trả header `X-RateLimit-Limit` thì dùng luôn số đó. Đồng bộ tự động chỉ dùng tối đa % hạn mức đã đặt (mặc định 80%), khi chưa dò được thì dùng giới hạn mặc định (50 lượt/ngày/hệ thống), hoặc đặt giới hạn cố định. Khi đang bị chặn, web không gửi yêu cầu nào cho đến giờ LGSP mở lại.
-- Hạn mức dò được chỉ tính lượt gọi từ web. Nếu cùng khóa còn được dùng ở Postman hoặc nơi khác thì hạn mức thật lớn hơn số dò được.
+- **Đồng bộ tự động riêng từng xã**: mỗi xã tự bật/tắt, đặt các mốc giờ trong ngày (giờ Việt Nam, ví dụ `08:00, 14:00, 19:00, 23:00`), số ngày dữ liệu cần lấy và các mục. Đến mốc nào thì chỉ chạy các mục được phép trong khung giờ đó, lần lượt từng mục; khi xã đã dùng đủ lượt trong 60 phút thì chờ có lượt trống rồi chạy tiếp (không quá lúc khung giờ của mục đóng lại). Web cảnh báo mục nào không có mốc giờ nằm trong khung được phép của nó. Quản trị xem được bảng lịch của mọi xã. Máy chủ phải đang chạy thì lịch mới chạy (Render gói Starter luôn chạy; gói Free bị ngủ).
+- **Đếm lượt gọi**: mọi lượt gọi API LGSP được đếm theo ngày, xã và hệ thống: thành công, lỗi, bị chặn (429). Có tổng hôm nay / 7 ngày / 30 ngày, số lượt trong 60 phút qua, bảng theo ngày, theo xã, xuất Excel. Tài khoản xã chỉ thấy số của xã mình.
+- **Hạn mức ngày**: LGSP đặt lại hạn mức ngày lúc 7:00 sáng (00:00 UTC), tính riêng cho từng API của mỗi khóa. Lần đầu bị 429, số lượt đã gọi trước đó được ghi làm hạn mức dò được; khi đang bị chặn, web không gửi yêu cầu nào cho đến giờ LGSP mở lại.
 
 ## Cấu hình
 
@@ -55,8 +69,10 @@ Tab **Cấu hình** (lưu tại `config/config.json`), đã điền sẵn từ c
 server.js          máy chủ HTTP + proxy gọi LGSP
 lib/catalog.js     danh mục hệ thống và mục truy vấn
 lib/lgsp.js        token, gọi API, phân trang, xử lý job QLVBDH
-lib/usage.js       đếm lượt gọi API, dò hạn mức, chặn khi bị LGSP khóa
-lib/sync.js        chạy tác vụ, lịch đồng bộ tự động trong ngày
+lib/policy.js      quy định kết nối LGSP: lượt / 60 phút mỗi xã, khung giờ từng mục
+lib/users.js       tài khoản đăng nhập của các xã
+lib/usage.js       đếm lượt gọi API, dò hạn mức ngày, chặn khi bị LGSP khóa
+lib/sync.js        chạy tác vụ, lịch đồng bộ tự động riêng từng xã
 lib/store.js       cấu hình, kết quả, lịch sử, lượt gọi, xuất file
 lib/util.js        ngày tháng, bóc tách bản ghi, CSV
 public/            giao diện web

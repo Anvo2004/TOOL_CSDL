@@ -51,6 +51,7 @@ async function getToken(settings, xa, force = false) {
   if (!xa.key || !xa.secret) throw new Error(`Xã "${xa.name}" chưa cấu hình ConsumerKey/ConsumerSecret`);
   const cached = tokens.get(xa.key);
   if (!force && cached && cached.exp > Date.now()) return cached.token;
+  await usage.beforeToken(settings, xa);
   const r = await http(settings.token_url, {
     method: 'POST',
     headers: {
@@ -66,12 +67,12 @@ async function getToken(settings, xa, force = false) {
 }
 
 // Gọi API có Bearer token; nếu 401 thì lấy token mới và thử lại 1 lần.
-// Mọi lượt gọi đều được đếm vào hạn mức của (xã, hệ thống) — xem lib/usage.js.
+// Mọi lượt gọi đều được đếm vào hạn mức của (xã, hệ thống) và giới hạn lượt/giờ của xã — xem lib/usage.js.
 async function api(settings, xa, url, opts = {}) {
   const sys = usage.sysOf(settings, url);
   for (let attempt = 0; attempt < 2; attempt++) {
     const token = await getToken(settings, xa, attempt > 0);
-    usage.before(settings, xa, sys);
+    await usage.before(settings, xa, sys);
     let r;
     try {
       r = await http(url, { ...opts, headers: { Accept: 'application/json', ...(opts.headers || {}), Authorization: `Bearer ${token}` } });
@@ -89,6 +90,17 @@ async function apiJson(settings, xa, url, opts, label) {
   const be = bodyError(r.json);
   if (be) throw new Error(`${label}: ${be}`);
   return r.json;
+}
+
+// CSDL Phường xã chỉ giữ một phiên cho mỗi tài khoản: hai request song song cùng tài khoản thì request trước
+// bị hủy ("Token không hợp lệ hoặc đã hết hạn"). Xếp hàng các lượt gọi theo tài khoản.
+const accountQueues = new Map();
+function oneAtATime(key, fn) {
+  const run = (accountQueues.get(key) || Promise.resolve()).then(fn);
+  const tail = run.catch(() => {});
+  accountQueues.set(key, tail);
+  tail.then(() => { if (accountQueues.get(key) === tail) accountQueues.delete(key); });
+  return run;
 }
 
 const postJson = (body) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -205,8 +217,8 @@ async function findJobIdFromCallbacks(settings, since, ids, deadline, log) {
   return null;
 }
 
-// Giãn dần khoảng chờ để không tốn hạn mức gọi API trong ngày.
-const backoff = (n) => [2000, 3000, 5000, 8000][n] || 10000;
+// Giãn dần khoảng chờ: mỗi lần hỏi kết quả là một lượt kết nối, tính vào giới hạn lượt/giờ của xã.
+const backoff = (n) => [4000, 6000, 10000][n] || 15000;
 
 async function pollArtifact(settings, xa, base, jobId, deadline, log) {
   log(`  jobId ${jobId}, đang lấy kết quả...`);
@@ -353,7 +365,7 @@ async function runItem({ settings, xa, item, from, to, log }) {
         const limit = settings.csdlpx_limit;
         res = await paginate(async (page) => {
           const q = new URLSearchParams({ username: xa.csdlpx_username, password: xa.csdlpx_password, limit: String(limit), page: String(page) });
-          return extractRows(await apiJson(settings, xa, `${settings.base_csdlpx}${item.path}?${q}`, {}, 'CSDL PX'));
+          return extractRows(await oneAtATime(`csdlpx|${xa.csdlpx_username}`, () => apiJson(settings, xa, `${settings.base_csdlpx}${item.path}?${q}`, {}, 'CSDL PX')));
         }, limit, maxPages, log, { trustPageSize: true });
         break;
       }

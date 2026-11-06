@@ -30,6 +30,10 @@ const S = {
   nextRunAt: null,
   history: [],
   viewer: null,
+  me: {}, // { role: 'admin' | 'xa', xaId, xaName, user }
+  policy: null, // quy định kết nối LGSP (lib/policy.js)
+  autoXa: null,
+  users: [],
 };
 
 // ---------- Lưu lựa chọn của người dùng trên trình duyệt ----------
@@ -82,10 +86,9 @@ function log(msg, cls = '') {
 async function init() {
   const prefs = loadPrefs();
   const [info, catalog, config, stats] = await Promise.all([api('/api/info'), api('/api/catalog'), api('/api/config'), api('/api/stats')]);
-  if (info.auth) {
-    $('#btn-logout').classList.remove('hidden');
-    $('#btn-logout').title = `Đăng xuất (${info.user})`;
-  }
+  S.me = info;
+  S.policy = info.policy;
+  applyRole(info);
   if (info.storage === 'mongo') {
     // Trên máy chủ, kết quả mới nhất nằm trong CSDL và tải lại được bất cứ lúc nào — không lưu file ra ổ đĩa.
     $('#opt-autosave').checked = false;
@@ -121,8 +124,67 @@ async function init() {
   renderXaList();
   renderStats();
   renderConfig();
+  renderPolicy();
   setInterval(tickSchedule, 1000);
+  setInterval(refreshPolicy, 20000);
   log('Sẵn sàng. Chọn danh mục, xã và bấm "Truy vấn".', 'l-info');
+}
+
+// Tài khoản xã chỉ thấy xã của mình: ẩn phần chỉ dành cho quản trị.
+function applyRole(info) {
+  const xaRole = info.role === 'xa';
+  $$('.admin-only').forEach((el) => el.classList.toggle('hidden', xaRole));
+  $$('.xa-only').forEach((el) => el.classList.toggle('hidden', !xaRole));
+  if (!info.auth) return;
+  $('#btn-logout').classList.remove('hidden');
+  $('#btn-logout').title = `Đăng xuất (${info.user})`;
+  $('#me').classList.remove('hidden');
+  $('#me').textContent = xaRole ? `${info.xaName} · ${info.user}` : `Quản trị · ${info.user}`;
+  $('#btn-passwd').classList.toggle('hidden', !xaRole);
+}
+
+// ---------- Quy định kết nối LGSP ----------
+const WIN_SHORT = { day: '07–18h', night: '18–07h', any: 'cả ngày' };
+const winOf = (key) => (S.policy && S.policy.itemWindows[key]) || 'night';
+const winOpen = (w) => !S.policy || S.policy.windows[w].open;
+
+function winTag(key) {
+  const w = winOf(key);
+  const p = S.policy && S.policy.windows[w];
+  const title = p ? `${p.name}: ${p.label}${p.open ? '' : ' (hiện đang ngoài khung giờ)'}` : '';
+  return `<span class="tag win-${w} ${winOpen(w) ? '' : 'off'}" title="${esc(title)}">${WIN_SHORT[w]}</span>`;
+}
+
+async function refreshPolicy() {
+  try {
+    S.policy = (await api('/api/info')).policy;
+    renderPolicy();
+  } catch { /* mất kết nối tạm thời: giữ số liệu cũ */ }
+}
+
+function hourlyHtml(h) {
+  const pct = Math.min(100, Math.round((h.used / h.limit) * 100));
+  const free = h.freeAt ? ` · có lượt lúc ${new Date(h.freeAt).toLocaleTimeString('vi-VN', { hour12: false })}` : '';
+  return `<div class="hour-row"><span class="nw">${esc(h.xaName)}</span>
+    <div class="meter ${pct >= 100 ? 'full' : pct >= 80 ? 'warn' : ''}"><span style="width:${pct}%"></span></div>
+    <span class="nw"><b>${h.used}</b>/${h.limit} lượt trong 60 phút${free}</span></div>`;
+}
+
+function policyHtml() {
+  const p = S.policy;
+  const open = Object.entries(p.windows).find(([k, w]) => k !== 'any' && w.open);
+  const n = [...S.items.keys()].filter((k) => winOpen(winOf(k))).length;
+  return `<p class="policy-now">Bây giờ là khung <b>${open ? esc(`${open[1].name} ${open[1].label}`) : ''}</b>: được chạy ${n}/${S.items.size} mục.
+      Nhãn <span class="tag win-day">07–18h</span> / <span class="tag win-night">18–07h</span> cạnh mỗi mục là khung giờ được phép kết nối.</p>
+    <div class="hours">${p.hourly.map(hourlyHtml).join('')}</div>`;
+}
+
+function renderPolicy() {
+  if (!S.policy) return;
+  const p = S.policy;
+  $('#policy-card').innerHTML = `<div class="table-toolbar"><h2>Quy định kết nối Trục LGSP
+    <span class="hint">(${esc(p.doc)}, từ 05/11/2026): mỗi xã tối đa ${p.hourlyLimit} lượt / 60 phút, đúng khung giờ của từng mục</span></h2></div>${policyHtml()}`;
+  renderCatalog();
 }
 
 // ---------- Danh mục ----------
@@ -147,7 +209,7 @@ function renderCatalog() {
         ${items.map((it) => {
           const k = `${cat.id}.${it.id}`;
           return `<label class="check"><input type="checkbox" class="item-check" value="${k}" ${S.selItems.has(k) ? 'checked' : ''}>
-            ${esc(it.name)} ${it.dated ? '<span class="tag">theo ngày</span>' : ''}</label>`;
+            ${esc(it.name)} ${it.dated ? '<span class="tag">theo ngày</span>' : ''} ${winTag(k)}</label>`;
         }).join('')}
       </div>
     </div>`;
@@ -261,7 +323,7 @@ async function runTasks(keys, { scheduled = false } = {}) {
     renderIters();
     if (iterations > 1) log(`Vòng ${it}/${iterations}: ${sum.ok} thành công, ${sum.error} lỗi, ${sum.skipped} bỏ qua, ${fmtNum(sum.rows)} bản ghi, ${sum.calls} lượt gọi API`, 'l-info');
     if (guard && sum.skipped === keys.length) {
-      log('Mọi tác vụ trong vòng đều bị bỏ qua (LGSP đang chặn hoặc đã đủ giới hạn tự đặt), dừng chạy lặp.', 'l-err');
+      log('Mọi tác vụ trong vòng đều bị bỏ qua (ngoài khung giờ, đã dùng đủ lượt trong giờ hoặc LGSP đang chặn), dừng chạy lặp.', 'l-err');
       break;
     }
   }
@@ -271,6 +333,7 @@ async function runTasks(keys, { scheduled = false } = {}) {
   updateRunButton();
   renderStats();
   log(`${S.stopRequested ? 'Đã dừng' : 'Hoàn tất'}: ${total.ok} thành công, ${total.error} lỗi${total.skipped ? `, ${total.skipped} bỏ qua` : ''}, ${fmtNum(total.rows)} bản ghi, ${fmtNum(total.calls)} lượt gọi API, ${fmtDur(S.run.end - S.run.start)}`, 'l-info');
+  refreshPolicy();
   if (!S.stopRequested && $('#opt-autoexcel').checked) exportExcelAll(keys);
   if ($('#opt-schedule').checked) scheduleNext();
 }
@@ -673,76 +736,92 @@ function exportHistory() {
 }
 
 // ---------- Tự động & hạn mức ----------
-const LIMIT_SOURCE = { none: 'không giới hạn', manual: 'cố định', '429': 'dò từ lỗi 429', header: 'theo header LGSP', default: 'mặc định (chưa dò được)' };
+const SLOT_LABEL = { done: 'Đã chạy', running: 'Đang chạy', missed: 'Đã qua (máy chủ không chạy lúc đó)', pending: 'Chưa đến giờ' };
 
 async function loadAutoTab() {
-  const [auto, u] = await Promise.all([api('/api/auto'), api('/api/usage?days=30')]);
+  const xa = S.autoXa || (S.config.xa.find((x) => x.id) || {}).id || '';
+  const [auto, u] = await Promise.all([api(`/api/auto?xa=${encodeURIComponent(xa)}`), api('/api/usage?days=30')]);
   S.auto = auto;
   S.usage = u;
-  if (!S.autoFormDirty) fillAutoForm(auto.settings);
+  S.policy = u.policy;
+  if (auto.selected) S.autoXa = auto.selected.xaId;
+  if (!S.autoFormDirty) fillAutoForm();
   renderAutoStatus();
+  renderOverview();
   renderUsage();
 }
 
-function fillAutoForm(s) {
-  $('#a-enabled').checked = !!s.auto_enabled;
-  $('#a-runs').value = s.auto_runs_per_day;
-  $('#a-start').value = s.auto_start;
-  $('#a-end').value = s.auto_end;
-  $('#a-days').value = s.auto_days;
-  $('#a-conc').value = s.auto_concurrency;
-  $('#a-limit-on').checked = !!s.auto_limit_enabled;
-  toggleLimitFields();
-  $('#a-pct').value = s.auto_safety_pct;
-  $('#a-deflimit').value = s.auto_default_limit;
-  $('#a-fixlimit').value = s.auto_daily_limit;
-  const items = new Set(s.auto_items || []);
+function fillAutoForm() {
+  const sel = S.auto.selected;
+  $('#a-xa-sel').innerHTML = S.config.xa.filter((x) => x.id).map((x) => `<option value="${esc(x.id)}" ${sel && sel.xaId === x.id ? 'selected' : ''}>${esc(x.name)}</option>`).join('');
+  $('#a-xa-sel').disabled = S.me.role === 'xa';
+  if (!sel) return;
+  const a = sel.auto;
+  $('#a-enabled').checked = a.enabled;
+  $('#a-times').value = a.times.join(', ');
+  $('#a-days').value = a.days;
+  const items = new Set(a.items);
   $('#a-items').innerHTML = [...S.items.values()].map((it) =>
-    `<label class="check"><input type="checkbox" value="${esc(it.key)}" ${items.has(it.key) ? 'checked' : ''}> ${esc(it.cat.short)} – ${esc(it.name)}</label>`).join('');
-  const xa = new Set(s.auto_xa || []);
-  $('#a-xa').innerHTML = S.config.xa.map((x) =>
-    `<label class="check"><input type="checkbox" value="${esc(x.id)}" ${xa.has(x.id) ? 'checked' : ''}> ${esc(x.name)}</label>`).join('') || '<p class="hint">Chưa có xã nào.</p>';
-}
-
-function toggleLimitFields() {
-  $$('#a-limit-fields input').forEach((el) => { el.disabled = !$('#a-limit-on').checked; });
+    `<label class="check"><input type="checkbox" value="${esc(it.key)}" ${items.has(it.key) ? 'checked' : ''}> ${esc(it.cat.short)} – ${esc(it.name)} ${winTag(it.key)}</label>`).join('');
 }
 
 function renderAutoStatus() {
-  const a = S.auto;
-  $('#a-slots').innerHTML = a.slots.map((x) => `<span class="slot ${x.status}" title="${{ done: 'Đã chạy', running: 'Đang chạy', missed: 'Đã qua (máy chủ không chạy lúc đó)', pending: 'Chưa đến giờ' }[x.status]}">${x.time}</span>`).join('');
-  let msg = !a.enabled ? 'Đang tắt. Các mốc giờ trên là dự kiến khi bật.'
-    : a.next ? `Lượt kế tiếp lúc ${a.next} hôm nay.` : 'Đã chạy hết các mốc hôm nay, lượt kế tiếp vào ngày mai.';
-  if (a.running && a.current) msg = `Đang đồng bộ: ${a.current.done}/${a.current.total} tác vụ...`;
-  else if (a.lastRun) msg += ` Lượt gần nhất ${fmtTime(a.lastRun.finishedAt)}: ${a.lastRun.ok} thành công, ${a.lastRun.error} lỗi, ${a.lastRun.skipped} bỏ qua, ${fmtNum(a.lastRun.calls)} lượt gọi API.`;
+  const sel = S.auto.selected;
+  if (!sel) {
+    $('#a-status').textContent = 'Chưa có xã nào.';
+    return;
+  }
+  const limit = S.policy.hourlyLimit;
+  $('#a-slots').innerHTML = sel.slots.map((x) => {
+    const title = `${SLOT_LABEL[x.status]} · ${x.items} mục được phép lúc này, cần khoảng ${x.cost} lượt kết nối${x.cost > limit ? ` (nhiều hơn ${limit} lượt/giờ nên sẽ phải chờ lượt trống)` : ''}`;
+    return `<span class="slot ${x.status}" title="${esc(title)}">${x.time} · ${x.items} mục${x.cost > limit ? ' ⏳' : ''}</span>`;
+  }).join('') || '<span class="hint">Chưa có mốc giờ nào.</span>';
+  let msg = !sel.auto.enabled ? 'Đang tắt. Các mốc giờ trên là dự kiến khi bật.'
+    : sel.next ? `Lượt kế tiếp lúc ${sel.next} hôm nay.` : 'Đã chạy hết các mốc hôm nay, lượt kế tiếp vào ngày mai.';
+  if (sel.running && sel.current) msg = `Đang đồng bộ: ${sel.current.done}/${sel.current.total} mục...`;
+  else if (sel.lastRun) msg += ` Lượt gần nhất ${fmtTime(sel.lastRun.finishedAt)}: ${sel.lastRun.ok} thành công, ${sel.lastRun.error} lỗi, ${sel.lastRun.skipped} bỏ qua, ${fmtNum(sel.lastRun.calls)} lượt gọi API.`;
   $('#a-status').textContent = msg;
-  $('#auto-run').disabled = a.running;
+  const names = sel.unscheduled.map((k) => (S.items.get(k) || {}).name || k);
+  $('#a-warn').textContent = names.length
+    ? `Không có mốc giờ nào nằm trong khung được phép của: ${names.join(', ')}. Hãy thêm mốc giờ phù hợp (xem nhãn giờ cạnh từng mục).` : '';
+  $('#auto-run').disabled = sel.running;
+  $('#a-policy').innerHTML = `${policyHtml()}<p class="hint">Mỗi mốc giờ chỉ chạy các mục được phép trong khung giờ đó, lần lượt từng mục.
+    Khi xã đã dùng đủ ${limit} lượt trong 60 phút (tính cả truy vấn tay), đồng bộ tự động chờ có lượt trống rồi chạy tiếp.
+    Máy chủ phải đang chạy đúng giờ thì lịch mới chạy.</p>`;
+}
+
+// Bảng lịch của mọi xã (chỉ quản trị).
+function renderOverview() {
+  const rows = S.auto.overview || [];
+  $('#a-overview-wrap').classList.toggle('hidden', !rows.length);
+  if (!rows.length) return;
+  $('#a-overview').innerHTML = `<table><thead><tr><th>Xã / phường</th><th>Tự động</th><th>Mốc giờ</th><th class="num">Mục</th><th>Lượt kế tiếp</th><th>Lượt gần nhất</th></tr></thead>
+    <tbody>${rows.map((r) => `<tr>
+      <td class="nw"><button class="link" data-xa="${esc(r.xaId)}">${esc(r.xaName)}</button></td>
+      <td>${r.running ? statusBadge('running') : r.enabled ? '<span class="badge-st st-ok">Bật</span>' : '<span class="badge-st st-pending">Tắt</span>'}</td>
+      <td>${esc(r.times.join(', '))}</td><td class="num">${r.items}</td><td>${r.enabled && r.next ? r.next : ''}</td>
+      <td class="nw">${r.lastRun ? `${fmtTime(r.lastRun.finishedAt)} · ${r.lastRun.ok} ok, ${r.lastRun.error} lỗi` : ''}</td>
+    </tr>`).join('')}</tbody></table>`;
 }
 
 function readAutoForm() {
   return {
-    auto_enabled: $('#a-enabled').checked,
-    auto_runs_per_day: Number($('#a-runs').value),
-    auto_start: $('#a-start').value,
-    auto_end: $('#a-end').value,
-    auto_days: Number($('#a-days').value),
-    auto_concurrency: Number($('#a-conc').value),
-    auto_limit_enabled: $('#a-limit-on').checked,
-    auto_safety_pct: Number($('#a-pct').value),
-    auto_default_limit: Number($('#a-deflimit').value),
-    auto_daily_limit: Number($('#a-fixlimit').value),
-    auto_items: $$('#a-items input:checked').map((el) => el.value),
-    auto_xa: $$('#a-xa input:checked').map((el) => el.value),
+    xaId: S.autoXa,
+    enabled: $('#a-enabled').checked,
+    times: $('#a-times').value,
+    days: Number($('#a-days').value),
+    items: $$('#a-items input:checked').map((el) => el.value),
   };
 }
 
 async function saveAuto() {
   const form = readAutoForm();
-  if (!form.auto_items.length) return toast('Chọn ít nhất một mục để đồng bộ');
+  if (!form.items.length) return toast('Chọn ít nhất một mục để đồng bộ');
+  if (form.enabled && !form.times.trim()) return toast('Nhập ít nhất một mốc giờ');
   await api('/api/auto', { method: 'PUT', body: JSON.stringify(form) });
   S.autoFormDirty = false;
   await loadAutoTab();
-  toast('Đã lưu cấu hình đồng bộ tự động');
+  toast('Đã lưu lịch đồng bộ tự động');
 }
 
 const callsSub = (t) => `${fmtNum(t.ok)} thành công · ${fmtNum(t.err)} lỗi${t.throttled ? ` (${fmtNum(t.throttled)} bị chặn)` : ''}`;
@@ -758,36 +837,33 @@ function renderUsage() {
   $('#u-month-sub').textContent = callsSub(t.month);
   $('#u-tok').textContent = fmtNum(t.today.tasksOk);
   $('#u-terr').textContent = fmtNum(t.today.tasksErr);
-  $('#u-reset').textContent = `hạn mức đặt lại lúc ${fmtTime(u.resetAt)}`;
+  $('#u-reset').textContent = `hạn mức ngày đặt lại lúc ${fmtTime(u.resetAt)}`;
+  const h = u.policy.hourly.find((x) => x.xaId === S.autoXa) || u.policy.hourly[0];
+  $('#u-hour').textContent = h ? `${h.used}/${h.limit}` : '–';
+  $('#u-hour-sub').textContent = h ? `lượt kết nối · ${h.xaName}` : '';
 
-  const autoSys = new Set((S.auto.settings.auto_items || []).map((k) => k.split('.')[0]));
+  const autoSys = new Set((S.auto.selected ? S.auto.selected.auto.items : []).map((k) => k.split('.')[0]));
   const rows = u.today.filter((r) => $('#u-all-sys').checked || r.calls || r.quota || r.blockedUntil || autoSys.has(r.sys));
   $('#u-quota').innerHTML = rows.length ? `<table>
-    <thead><tr><th>Xã / phường</th><th>Hệ thống</th><th class="num">Đã gọi</th><th class="num">Lỗi</th><th>Đã dùng / giới hạn tự đặt</th>
-      <th class="num">Hạn mức dò được</th><th>Trạng thái</th></tr></thead>
+    <thead><tr><th>Xã / phường</th><th>Hệ thống</th><th class="num">Đã gọi</th><th class="num">Lỗi</th><th class="num">Hạn mức ngày dò được</th><th>Trạng thái</th></tr></thead>
     <tbody>${rows.map((r) => {
-      const unlimited = r.limit == null;
-      const pct = unlimited ? 0 : Math.min(100, Math.round((r.used / r.limit) * 100));
-      const cls = pct >= 100 ? 'full' : pct >= 80 ? 'warn' : '';
       const obs = r.observed.map((o) => `${o.day}: ${o.used}`).join(', ');
       return `<tr>
         <td class="nw">${esc(r.xaName)}</td><td class="nw">${esc(r.sysName)}</td>
         <td class="num">${fmtNum(r.calls)}</td><td class="num">${r.err ? `<span class="err-text">${fmtNum(r.err)}</span>` : 0}</td>
-        <td>${unlimited ? `<span class="nw">${fmtNum(r.used)}</span> <span class="hint">(không giới hạn)</span>`
-          : `<span class="nw">${fmtNum(r.used)} / ${fmtNum(r.limit)}</span> <span class="hint">(${LIMIT_SOURCE[r.limitSource] || r.limitSource})</span>
-          <div class="meter ${cls}"><span style="width:${pct}%"></span></div>`}</td>
         <td class="num" title="${esc(obs ? 'Các lần quan sát: ' + obs : '')}">${r.quota ? fmtNum(r.quota) : '<span class="hint">chưa biết</span>'}</td>
         <td>${r.blockedUntil
           ? `<span class="badge-st st-error">Bị LGSP chặn đến ${fmtTime(r.blockedUntil)}</span> <button class="btn sm" data-act="unblock" data-xa="${esc(r.xaId)}" data-sys="${esc(r.sys)}" title="Chỉ bấm khi chắc LGSP đã mở lại (ví dụ đã được nâng hạn mức)">Bỏ chặn</button>`
-          : !unlimited && r.used >= r.limit ? '<span class="badge-st st-queued">Đủ giới hạn, tự động dừng</span>' : '<span class="badge-st st-ok">Còn lượt</span>'}</td>
+          : '<span class="badge-st st-ok">Còn lượt</span>'}</td>
       </tr>`;
-    }).join('')}</tbody></table>` : '<div class="empty">Chưa có xã nào.</div>';
+    }).join('')}</tbody></table>` : '<div class="empty">Chưa có lượt gọi nào hôm nay.</div>';
 
   $('#u-runs').innerHTML = u.runs.length ? `<table>
-    <thead><tr><th>Bắt đầu</th><th>Kiểu</th><th>Khoảng ngày</th><th class="num">Thành công</th><th class="num">Lỗi</th><th class="num">Bỏ qua</th>
+    <thead><tr><th>Bắt đầu</th><th>Xã / phường</th><th>Kiểu</th><th>Khoảng ngày</th><th class="num">Thành công</th><th class="num">Lỗi</th><th class="num">Bỏ qua</th>
       <th class="num">Bản ghi</th><th class="num">Lượt gọi API</th><th class="num">Thời gian</th><th>Chi tiết</th></tr></thead>
     <tbody>${u.runs.map((r) => `<tr>
       <td class="nw">${fmtTime(r.startedAt)}</td>
+      <td class="nw">${esc(r.xaName || 'Nhiều xã (bản cũ)')}</td>
       <td class="nw">${r.trigger === 'auto' ? `Theo lịch ${esc((r.slot || '').split(' ')[1] || '')}` : 'Chạy ngay'}</td>
       <td class="nw">${viDate(r.from)} – ${viDate(r.to)}</td>
       <td class="num"><b class="ok-text">${fmtNum(r.ok)}</b></td><td class="num">${r.error ? `<b class="err-text">${fmtNum(r.error)}</b>` : 0}</td><td class="num">${fmtNum(r.skipped)}</td>
@@ -825,7 +901,7 @@ function exportUsage() {
     'Lượt thành công': d.ok, 'Lượt lỗi': d.err, 'Bị chặn (429)': d.throttled, 'Lượt tự động': d.auto,
   }))), 'Theo ngay');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(S.usage.runs.map((r) => ({
-    'Bắt đầu': fmtTime(r.startedAt), 'Kiểu': r.trigger === 'auto' ? 'Theo lịch' : 'Chạy ngay', 'Từ ngày': viDate(r.from), 'Đến ngày': viDate(r.to),
+    'Bắt đầu': fmtTime(r.startedAt), 'Xã/phường': r.xaName || '', 'Kiểu': r.trigger === 'auto' ? 'Theo lịch' : 'Chạy ngay', 'Từ ngày': viDate(r.from), 'Đến ngày': viDate(r.to),
     'Thành công': r.ok, 'Lỗi': r.error, 'Bỏ qua': r.skipped, 'Bản ghi': r.rows, 'Lượt gọi API': r.calls,
   }))), 'Luot dong bo');
   XLSX.writeFile(wb, `LuotGoi_LGSP_${stamp()}.xlsx`);
@@ -853,22 +929,43 @@ const XA_GROUPS = [
   ['CSDL Phường xã', [['csdlpx_username', 'Username'], ['csdlpx_password', 'Password', 'password']]],
 ];
 
+const WIN_OPTIONS = [['day', 'Giờ hành chính 07:00–18:00'], ['night', 'Ngoài giờ 18:00–07:00'], ['any', 'Cả ngày (đã được chấp thuận)']];
+
 function renderConfig() {
   const s = S.config.settings;
+  const admin = S.me.role !== 'xa';
   const field = ([k, label, type = 'text']) => `<label>${esc(label)}<input class="input" data-setting="${k}" type="${type}" value="${esc(s[k])}"></label>`;
   $('#cfg-settings').innerHTML = SETTING_FIELDS.map(field).join('');
   $('#cfg-bases').innerHTML = BASE_FIELDS.map(field).join('');
-  $('#cfg-xa').innerHTML = S.config.xa.map((x, idx) => xaCardHtml(x, idx)).join('') || '<p class="hint">Chưa có xã nào.</p>';
+  $('#cfg-hourly').value = s.policy_hourly_limit;
+  $('#cfg-windows').innerHTML = windowsHtml();
+  $('#cfg-xa-title').textContent = admin ? 'Danh sách xã / phường' : 'Cấu hình kết nối của xã';
+  $('#cfg-xa').innerHTML = S.config.xa.map((x, idx) => xaCardHtml(x, idx, admin)).join('') || '<p class="hint">Chưa có xã nào.</p>';
+  if (admin) renderUsers();
 }
 
-function xaCardHtml(x, idx) {
+// Khung giờ từng mục: mục lẻ (QLVBDH, Cổng TTĐT...) chỉnh riêng từng mục, CSDL Phường xã chỉnh chung cả nhóm.
+function windowsHtml() {
+  const rows = [];
+  for (const cat of S.catalog) {
+    if (cat.items.length <= 4) cat.items.forEach((it) => rows.push([`${cat.id}.${it.id}`, cat.short, it.name, `${cat.id}.${it.id}`]));
+    else rows.push([cat.id, cat.short, `Tất cả ${cat.items.length} mục`, `${cat.id}.${cat.items[0].id}`]);
+  }
+  return `<table><thead><tr><th>Hệ thống</th><th>Mục</th><th>Khung giờ được kết nối</th></tr></thead><tbody>${rows.map(([key, sys, name, sample]) => {
+    const cur = winOf(sample);
+    return `<tr><td class="nw">${esc(sys)}</td><td>${esc(name)}</td><td><select class="input" data-window="${esc(key)}">
+      ${WIN_OPTIONS.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+function xaCardHtml(x, idx, admin) {
   return `<div class="xa-card" data-idx="${idx}" data-id="${esc(x.id || '')}">
     <div class="xa-card-head">
-      <input class="input" data-f="name" value="${esc(x.name)}" placeholder="Tên xã / phường">
+      <input class="input" data-f="name" value="${esc(x.name)}" placeholder="Tên xã / phường" ${admin ? '' : 'readonly'}>
       <div class="toolbar-right">
         <span class="hint" data-role="token-result"></span>
         <button class="btn sm" data-act="test-token" ${x.id ? '' : 'disabled title="Lưu cấu hình trước"'}>Thử lấy token</button>
-        <button class="btn sm danger" data-act="remove-xa">Xóa</button>
+        ${admin ? '<button class="btn sm danger" data-act="remove-xa">Xóa</button>' : ''}
       </div>
     </div>
     ${XA_GROUPS.map(([legend, fields]) => `<fieldset><legend>${esc(legend)}</legend><div class="form-grid">
@@ -880,6 +977,7 @@ function xaCardHtml(x, idx) {
 function readConfigForm() {
   const settings = {};
   $$('[data-setting]').forEach((el) => { settings[el.dataset.setting] = el.type === 'number' ? Number(el.value) : el.value.trim(); });
+  settings.policy_windows = Object.fromEntries($$('[data-window]').map((el) => [el.dataset.window, el.value]));
   const xa = $$('.xa-card').map((card) => {
     const o = { id: card.dataset.id || '' };
     $$('[data-f]', card).forEach((el) => { o[el.dataset.f] = el.value.trim(); });
@@ -897,7 +995,86 @@ async function saveConfig() {
   renderXaList();
   renderStats();
   savePrefs();
+  refreshPolicy();
   toast('Đã lưu cấu hình');
+}
+
+// ---------- Tài khoản các xã (quản trị) ----------
+async function renderUsers() {
+  $('#user-xa').innerHTML = S.config.xa.filter((x) => x.id).map((x) => `<option value="${esc(x.id)}">${esc(x.name)}</option>`).join('');
+  try {
+    S.users = await api('/api/users');
+  } catch (e) {
+    $('#users-wrap').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+    return;
+  }
+  const xaName = (id) => (S.config.xa.find((x) => x.id === id) || {}).name;
+  $('#users-wrap').innerHTML = S.users.length ? `<table>
+    <thead><tr><th>Tên đăng nhập</th><th>Xã / phường</th><th>Trạng thái</th><th>Tạo lúc</th><th>Đổi mật khẩu</th><th>Đăng nhập gần nhất</th><th>Thao tác</th></tr></thead>
+    <tbody>${S.users.map((u) => `<tr>
+      <td class="nw"><b>${esc(u.username)}</b></td>
+      <td class="nw">${xaName(u.xaId) ? esc(xaName(u.xaId)) : `<span class="err-text">Xã đã xóa (${esc(u.xaId)})</span>`}</td>
+      <td>${u.disabled ? '<span class="badge-st st-error">Đã khóa</span>' : '<span class="badge-st st-ok">Hoạt động</span>'}</td>
+      <td class="nw">${fmtTime(u.createdAt)}</td><td class="nw">${fmtTime(u.passwordChangedAt)}</td>
+      <td class="nw">${fmtTime(u.lastLoginAt) || '<span class="hint">chưa đăng nhập</span>'}</td>
+      <td class="actions">
+        <button class="btn sm" data-uact="reset" data-u="${esc(u.username)}">Đặt lại mật khẩu</button>
+        <button class="btn sm" data-uact="${u.disabled ? 'enable' : 'disable'}" data-u="${esc(u.username)}">${u.disabled ? 'Mở khóa' : 'Khóa'}</button>
+        <button class="btn sm danger" data-uact="delete" data-u="${esc(u.username)}">Xóa</button>
+      </td></tr>`).join('')}</tbody></table>` : '<div class="empty">Chưa có tài khoản xã nào.</div>';
+}
+
+function showPassword(username, password) {
+  prompt(`Mật khẩu của tài khoản "${username}" (chỉ hiện một lần, hãy sao chép gửi cho xã):`, password);
+}
+
+async function createUser(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const r = await api('/api/users', { method: 'POST', body: JSON.stringify({ username: fd.get('username').trim(), password: fd.get('password'), xaId: fd.get('xaId') }) });
+  e.target.reset();
+  if (r.password) showPassword(r.user.username, r.password);
+  toast(`Đã tạo tài khoản ${r.user.username}`);
+  renderUsers();
+}
+
+async function userAction(btn) {
+  const u = btn.dataset.u;
+  const act = btn.dataset.uact;
+  const path = `/api/users/${encodeURIComponent(u)}`;
+  if (act === 'reset') {
+    if (!confirm(`Đặt lại mật khẩu cho "${u}"? Tài khoản này sẽ bị đăng xuất.`)) return;
+    showPassword(u, (await api(`${path}/password`, { method: 'POST', body: '{}' })).password);
+  } else if (act === 'enable' || act === 'disable') {
+    await api(path, { method: 'PUT', body: JSON.stringify({ disabled: act === 'disable' }) });
+  } else if (act === 'delete') {
+    if (!confirm(`Xóa tài khoản "${u}"?`)) return;
+    await api(path, { method: 'DELETE' });
+  }
+  renderUsers();
+}
+
+// ---------- Đổi mật khẩu (tài khoản xã) ----------
+function openPasswd() {
+  $('#pw-form').reset();
+  $('#pw-error').textContent = '';
+  $('#pw-modal').classList.remove('hidden');
+}
+
+async function changePasswd(e) {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  if (fd.get('next') !== fd.get('again')) {
+    $('#pw-error').textContent = 'Hai lần nhập mật khẩu mới không khớp';
+    return;
+  }
+  try {
+    await api('/api/password', { method: 'POST', body: JSON.stringify({ current: fd.get('current'), next: fd.get('next') }) });
+    $('#pw-modal').classList.add('hidden');
+    toast('Đã đổi mật khẩu');
+  } catch (err) {
+    $('#pw-error').textContent = err.message;
+  }
 }
 
 // ---------- Sự kiện ----------
@@ -919,10 +1096,19 @@ function bindEvents() {
   }, 15000);
   $('#tab-auto').addEventListener('input', (e) => { if (e.target.closest('.auto-grid > .card:first-child')) S.autoFormDirty = true; });
   $('#auto-save').onclick = () => saveAuto().catch((e) => toast(e.message));
-  $('#a-limit-on').addEventListener('change', toggleLimitFields);
+  const pickAutoXa = (id) => {
+    S.autoXa = id;
+    S.autoFormDirty = false;
+    loadAutoTab().catch((e) => toast(e.message));
+  };
+  $('#a-xa-sel').addEventListener('change', (e) => pickAutoXa(e.target.value));
+  $('#a-overview').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-xa]');
+    if (b) pickAutoXa(b.dataset.xa);
+  });
   $('#auto-run').onclick = async () => {
-    if (!confirm('Chạy ngay 1 lượt đồng bộ với các mục và xã đã lưu? (Lượt này cũng tính vào giới hạn trong ngày)')) return;
-    await api('/api/auto/run', { method: 'POST' }).catch((e) => toast(e.message));
+    if (!confirm('Chạy ngay 1 lượt đồng bộ với các mục đã lưu của xã này? Chỉ các mục đang trong khung giờ được phép mới chạy, và tính vào số lượt trong giờ.')) return;
+    await api('/api/auto/run', { method: 'POST', body: JSON.stringify({ xaId: S.autoXa }) }).catch((e) => toast(e.message));
     toast('Đã bắt đầu đồng bộ');
     setTimeout(() => loadAutoTab().catch(() => {}), 1000);
   };
@@ -999,7 +1185,7 @@ function bindEvents() {
 
   $('#v-close').onclick = () => $('#viewer').classList.add('hidden');
   $('#viewer').addEventListener('click', (e) => { if (e.target.id === 'viewer') $('#viewer').classList.add('hidden'); });
-  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('#viewer').classList.add('hidden'); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $$('.modal').forEach((m) => m.classList.add('hidden')); });
   let vt;
   $('#v-search').addEventListener('input', (e) => {
     clearTimeout(vt);
@@ -1013,6 +1199,15 @@ function bindEvents() {
   $('#hist-excel').onclick = exportHistory;
 
   $('#cfg-save').onclick = () => saveConfig().catch((e) => toast(e.message));
+  $('#cfg-save-xa').onclick = () => saveConfig().catch((e) => toast(e.message));
+  $('#user-form').addEventListener('submit', (e) => createUser(e).catch((err) => toast(err.message, 5000)));
+  $('#users-wrap').addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-uact]');
+    if (btn) userAction(btn).catch((err) => toast(err.message, 5000));
+  });
+  $('#btn-passwd').onclick = openPasswd;
+  $('#pw-close').onclick = () => $('#pw-modal').classList.add('hidden');
+  $('#pw-form').addEventListener('submit', changePasswd);
   $('#cfg-add').onclick = () => {
     const form = readConfigForm();
     S.config = { ...S.config, settings: { ...S.config.settings, ...form.settings }, xa: [...form.xa, { name: '' }] };

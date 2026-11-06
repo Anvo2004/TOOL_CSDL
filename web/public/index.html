@@ -22,6 +22,8 @@
       <button class="tab" data-tab="auto">Tự động &amp; hạn mức</button>
       <button class="tab" data-tab="history">Lịch sử</button>
       <button class="tab" data-tab="config">Cấu hình</button>
+      <span class="me hidden" id="me"></span>
+      <button class="tab hidden" id="btn-passwd">Đổi mật khẩu</button>
       <button class="tab hidden" id="btn-logout">Đăng xuất</button>
     </nav>
   </header>
@@ -82,9 +84,8 @@
             <input type="number" id="opt-iter" class="input num" min="1" max="1000" value="1"> vòng</label>
           <label class="inline">Nghỉ giữa các request
             <input type="number" id="opt-delay" class="input num" min="0" max="3600" step="0.5" value="0"> giây</label>
-          <p class="hint">Giống Runner của Postman. Mặc định không giới hạn số lượt gọi. Khi LGSP báo hết hạn mức (429), các tác vụ
-            của hệ thống đó được bỏ qua đến 7:00 sáng hôm sau; nếu cả vòng đều bị bỏ qua thì tự dừng.
-            Muốn đặt giới hạn lượt mỗi ngày: tab <b>Tự động &amp; hạn mức</b>.</p>
+          <p class="hint">Giống Runner của Postman, nhưng luôn tuân theo quy định kết nối LGSP (khung trên cùng bên phải):
+            tác vụ ngoài khung giờ hoặc khi đã dùng đủ lượt trong 60 phút sẽ bị bỏ qua; nếu cả vòng đều bị bỏ qua thì tự dừng.</p>
         </div>
         <p class="hint" id="schedule-info"></p>
       </section>
@@ -96,6 +97,7 @@
     </aside>
 
     <section class="content">
+      <section class="card policy-card" id="policy-card"></section>
       <div class="stats-cards">
         <div class="stat"><span class="stat-label">Tác vụ</span><span class="stat-value" id="s-tasks">0</span><span class="stat-sub" id="s-tasks-sub">đã chọn</span></div>
         <div class="stat ok"><span class="stat-label">Thành công</span><span class="stat-value" id="s-ok">0</span><span class="stat-sub">mục</span></div>
@@ -157,50 +159,40 @@
       <div class="stat"><span class="stat-label">30 ngày</span><span class="stat-value" id="u-month">0</span><span class="stat-sub" id="u-month-sub"></span></div>
       <div class="stat ok"><span class="stat-label">Truy vấn thành công hôm nay</span><span class="stat-value" id="u-tok">0</span><span class="stat-sub">tác vụ (xã × mục)</span></div>
       <div class="stat err"><span class="stat-label">Truy vấn lỗi hôm nay</span><span class="stat-value" id="u-terr">0</span><span class="stat-sub" id="u-reset"></span></div>
+      <div class="stat"><span class="stat-label">60 phút qua</span><span class="stat-value" id="u-hour">0</span><span class="stat-sub" id="u-hour-sub"></span></div>
     </div>
 
     <div class="auto-grid">
       <section class="card">
         <div class="table-toolbar">
-          <h2>Đồng bộ tự động</h2>
+          <h2>Đồng bộ tự động <select id="a-xa-sel" class="input"></select></h2>
           <div class="toolbar-right">
             <button class="btn" id="auto-run">▶ Chạy ngay 1 lượt</button>
             <button class="btn primary" id="auto-save">💾 Lưu</button>
           </div>
         </div>
-        <label class="check"><input type="checkbox" id="a-enabled"> <b>Bật tự động đồng bộ mỗi ngày</b></label>
+        <label class="check"><input type="checkbox" id="a-enabled"> <b>Bật tự động đồng bộ mỗi ngày cho xã này</b></label>
         <div class="form-grid compact">
-          <label>Số lượt mỗi ngày<input class="input" type="number" id="a-runs" min="1" max="48"></label>
-          <label>Từ giờ<input class="input" type="time" id="a-start"></label>
-          <label>Đến giờ<input class="input" type="time" id="a-end"></label>
+          <label class="span2">Các mốc giờ chạy (giờ Việt Nam, cách nhau dấu phẩy)<input class="input" id="a-times" placeholder="08:00, 14:00, 19:00, 23:00"></label>
           <label>Lấy dữ liệu bao nhiêu ngày gần nhất<input class="input" type="number" id="a-days" min="1" max="31"></label>
-          <label>Số luồng song song<input class="input" type="number" id="a-conc" min="1" max="4"></label>
         </div>
         <div id="a-slots" class="slots"></div>
         <p class="hint" id="a-status"></p>
+        <p class="hint warn-text" id="a-warn"></p>
 
         <fieldset class="plain"><legend>Mục đồng bộ</legend><div id="a-items" class="checklist cols"></div></fieldset>
-        <fieldset class="plain"><legend>Xã / phường <span class="hint">(không chọn = tất cả)</span></legend><div id="a-xa" class="checklist cols"></div></fieldset>
-
-        <fieldset class="plain"><legend>Giới hạn lượt gọi mỗi ngày (mỗi xã, mỗi hệ thống)</legend>
-          <label class="check"><input type="checkbox" id="a-limit-on"> Bật giới hạn (tắt = không giới hạn, chạy đến khi LGSP báo hết hạn mức)</label>
-          <div class="form-grid compact" id="a-limit-fields">
-            <label>Dùng tối đa % hạn mức dò được<input class="input" type="number" id="a-pct" min="10" max="100"></label>
-            <label>Giới hạn khi chưa dò được hạn mức<input class="input" type="number" id="a-deflimit" min="1"></label>
-            <label>Giới hạn cố định (0 = tự động)<input class="input" type="number" id="a-fixlimit" min="0"></label>
-          </div>
-          <p class="hint">
-            Hạn mức LGSP tính theo ngày, đặt lại lúc <b>7:00 sáng</b> (00:00 UTC), nên đặt khung giờ chạy từ 7:00 trở đi.
-            Web tự dò hạn mức: lần đầu bị LGSP chặn (HTTP 429), số lượt đã gọi trước đó được ghi lại làm hạn mức.
-            Khi bật giới hạn, đồng bộ tự động và chạy lặp chỉ dùng tối đa % ở trên, phần còn lại để dành cho truy vấn tay.
-            Dù bật hay tắt, khi đang bị LGSP chặn web không gửi thêm yêu cầu cho đến giờ được mở lại (gửi cũng chỉ nhận 429).
-          </p>
-        </fieldset>
+        <fieldset class="plain"><legend>Quy định kết nối LGSP</legend><div id="a-policy"></div></fieldset>
       </section>
 
       <section class="card">
+        <div id="a-overview-wrap" class="hidden">
+          <div class="table-toolbar"><h2>Lịch tự động của các xã</h2></div>
+          <div class="table-wrap" id="a-overview"></div>
+          <p class="hint">Bấm tên xã để xem và sửa lịch của xã đó.</p>
+          <hr class="sep">
+        </div>
         <div class="table-toolbar">
-          <h2>Hạn mức hôm nay</h2>
+          <h2>Lượt gọi hôm nay</h2>
           <label class="check small"><input type="checkbox" id="u-all-sys"> Hiện cả hệ thống chưa dùng</label>
         </div>
         <div class="table-wrap" id="u-quota"></div>
@@ -231,7 +223,7 @@
   <main id="tab-history" class="tab-page hidden">
     <section class="card">
       <div class="table-toolbar">
-        <h2>Lịch sử truy vấn <span class="hint">(giữ 200 dòng mới nhất; số lượt gọi vẫn được đếm đầy đủ ở tab Tự động &amp; hạn mức)</span></h2>
+        <h2>Lịch sử truy vấn <span class="hint">(mỗi xã giữ 200 dòng mới nhất; số lượt gọi vẫn được đếm đầy đủ ở tab Tự động &amp; hạn mức)</span></h2>
         <div class="toolbar-right">
           <input type="search" id="hist-search" class="input" placeholder="Lọc theo xã, mục, lỗi...">
           <button class="btn" id="hist-refresh">↻ Tải lại</button>
@@ -244,12 +236,25 @@
 
   <!-- ============ CẤU HÌNH ============ -->
   <main id="tab-config" class="tab-page hidden">
-    <section class="card">
+    <section class="card admin-only">
       <div class="table-toolbar">
         <h2>Cấu hình chung</h2>
         <button class="btn primary" id="cfg-save">💾 Lưu cấu hình</button>
       </div>
       <div class="form-grid" id="cfg-settings"></div>
+      <fieldset class="plain">
+        <legend>Quy định kết nối Trục LGSP (CV 7779/SKHCN-CNTT, áp dụng từ 05/11/2026)</legend>
+        <div class="form-grid compact">
+          <label>Số lượt kết nối tối đa mỗi xã trong 60 phút<input class="input" type="number" data-setting="policy_hourly_limit" id="cfg-hourly" min="1"></label>
+        </div>
+        <div class="table-wrap" id="cfg-windows"></div>
+        <p class="hint">
+          Quy định: mỗi cơ quan tối đa <b>50 lần/giờ</b>; 07:00–18:00 dành cho dịch vụ ưu tiên (giải quyết TTHC, Myportal, Giao nhiệm vụ,
+          Lịch cơ quan); các hệ thống còn lại (thống kê, báo cáo...) kết nối 18:00–07:00. Web để mặc định 45 lượt/giờ, chừa phần còn lại cho
+          Postman và thử token, vì LGSP đếm chung mọi nơi dùng cùng khóa. Chỉ nâng số lượt hoặc chọn "Cả ngày" khi đã có văn bản chấp thuận
+          của Sở KH&amp;CN.
+        </p>
+      </fieldset>
       <details class="advanced">
         <summary>Địa chỉ API (nâng cao)</summary>
         <div class="form-grid" id="cfg-bases"></div>
@@ -262,12 +267,42 @@
 
     <section class="card">
       <div class="table-toolbar">
-        <h2>Danh sách xã / phường</h2>
-        <button class="btn" id="cfg-add">＋ Thêm xã</button>
+        <h2 id="cfg-xa-title">Danh sách xã / phường</h2>
+        <div class="toolbar-right">
+          <button class="btn admin-only" id="cfg-add">＋ Thêm xã</button>
+          <button class="btn primary xa-only hidden" id="cfg-save-xa">💾 Lưu cấu hình</button>
+        </div>
       </div>
       <div id="cfg-xa" class="xa-cards"></div>
     </section>
+
+    <section class="card admin-only" id="users-card">
+      <div class="table-toolbar"><h2>Tài khoản đăng nhập của các xã</h2></div>
+      <form id="user-form" class="form-grid compact user-form" autocomplete="off">
+        <label>Tên đăng nhập<input class="input" name="username" placeholder="vd: dienbanbac" required></label>
+        <label>Mật khẩu (để trống = tự tạo)<input class="input" name="password" type="text" autocomplete="new-password"></label>
+        <label>Xã / phường<select class="input" name="xaId" id="user-xa"></select></label>
+        <button class="btn primary" type="submit">＋ Tạo tài khoản</button>
+      </form>
+      <div class="table-wrap" id="users-wrap"></div>
+      <p class="hint">
+        Mỗi tài khoản chỉ thấy và làm việc với đúng xã của mình: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối,
+        xem lịch sử và số lượt gọi. Tài khoản xã không đổi được quy định kết nối và không thấy xã khác. Mật khẩu tự tạo chỉ hiện một lần,
+        hãy sao chép gửi cho xã; xã tự đổi mật khẩu bằng nút "Đổi mật khẩu". Khóa hoặc đặt lại mật khẩu thì phiên đang đăng nhập bị thoát ngay.
+      </p>
+    </section>
   </main>
+
+  <!-- ============ ĐỔI MẬT KHẨU ============ -->
+  <div class="modal hidden" id="pw-modal">
+    <form class="modal-box narrow" id="pw-form">
+      <div class="modal-head"><h2>Đổi mật khẩu</h2><button class="icon-btn" type="button" id="pw-close" title="Đóng">✕</button></div>
+      <label class="field">Mật khẩu hiện tại<input class="input" type="password" name="current" autocomplete="current-password" required></label>
+      <label class="field">Mật khẩu mới (ít nhất 8 ký tự)<input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required></label>
+      <label class="field">Nhập lại mật khẩu mới<input class="input" type="password" name="again" autocomplete="new-password" minlength="8" required></label>
+      <div class="modal-foot"><span class="err-text" id="pw-error"></span><button class="btn primary" type="submit">Lưu mật khẩu</button></div>
+    </form>
+  </div>
 
   <!-- ============ XEM DỮ LIỆU ============ -->
   <div class="modal hidden" id="viewer">

@@ -170,7 +170,7 @@ async function handleAuto(url, res, session) {
     selected: xa ? sync.status(cfg.settings, xa) : null,
     overview: isAdmin(session) ? cfg.xa.map((x) => {
       const st = sync.status(cfg.settings, x);
-      return { xaId: x.id, xaName: x.name, enabled: st.auto.enabled, times: st.auto.times, items: st.auto.items.length, next: st.next, running: st.running, lastRun: st.lastRun };
+      return { xaId: x.id, xaName: x.name, enabled: st.auto.enabled, mode: st.auto.mode, times: st.auto.times, items: st.auto.items.length, next: st.next, running: st.running, lastRun: st.lastRun };
     }) : [],
   });
 }

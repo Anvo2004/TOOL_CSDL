@@ -168,13 +168,18 @@
         <div class="table-toolbar">
           <h2>Đồng bộ tự động <select id="a-xa-sel" class="input"></select></h2>
           <div class="toolbar-right">
+            <button class="btn" id="auto-preset" title="Tự chọn các mục đã chạy thành công của xã, bật chạy liên tục mỗi giờ: mỗi giờ dùng hết số lượt kết nối được phép, suốt 24 giờ">⚡ Chạy liên tục mỗi giờ</button>
             <button class="btn" id="auto-run">▶ Chạy ngay 1 lượt</button>
             <button class="btn primary" id="auto-save">💾 Lưu</button>
           </div>
         </div>
         <label class="check"><input type="checkbox" id="a-enabled"> <b>Bật tự động đồng bộ mỗi ngày cho xã này</b></label>
         <div class="form-grid compact">
-          <label class="span2">Các mốc giờ chạy (giờ Việt Nam, cách nhau dấu phẩy)<input class="input" id="a-times" placeholder="08:00, 14:00, 19:00, 23:00"></label>
+          <label class="span2">Cách chạy<select class="input" id="a-mode">
+            <option value="hourly">Liên tục mỗi giờ: mỗi giờ chạy lặp đến khi hết lượt kết nối của giờ, suốt 24 giờ</option>
+            <option value="times">Theo các mốc giờ: mỗi mốc chạy mỗi mục một lần</option>
+          </select></label>
+          <label class="span2" id="a-times-wrap">Các mốc giờ chạy (giờ Việt Nam, cách nhau dấu phẩy)<input class="input" id="a-times" placeholder="08:00, 14:00, 19:00, 23:00"></label>
           <label>Lấy dữ liệu bao nhiêu ngày gần nhất<input class="input" type="number" id="a-days" min="1" max="31"></label>
         </div>
         <div id="a-slots" class="slots"></div>

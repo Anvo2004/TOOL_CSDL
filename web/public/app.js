@@ -758,11 +758,17 @@ function fillAutoForm() {
   if (!sel) return;
   const a = sel.auto;
   $('#a-enabled').checked = a.enabled;
+  $('#a-mode').value = a.mode;
   $('#a-times').value = a.times.join(', ');
+  syncModeUi();
   $('#a-days').value = a.days;
   const items = new Set(a.items);
   $('#a-items').innerHTML = [...S.items.values()].map((it) =>
     `<label class="check"><input type="checkbox" value="${esc(it.key)}" ${items.has(it.key) ? 'checked' : ''}> ${esc(it.cat.short)} – ${esc(it.name)} ${winTag(it.key)}</label>`).join('');
+}
+
+function syncModeUi() {
+  $('#a-times-wrap').classList.toggle('hidden', $('#a-mode').value === 'hourly');
 }
 
 function renderAutoStatus() {
@@ -776,16 +782,23 @@ function renderAutoStatus() {
     const title = `${SLOT_LABEL[x.status]} · ${x.items} mục được phép lúc này, cần khoảng ${x.cost} lượt kết nối${x.cost > limit ? ` (nhiều hơn ${limit} lượt/giờ nên sẽ phải chờ lượt trống)` : ''}`;
     return `<span class="slot ${x.status}" title="${esc(title)}">${x.time} · ${x.items} mục${x.cost > limit ? ' ⏳' : ''}</span>`;
   }).join('') || '<span class="hint">Chưa có mốc giờ nào.</span>';
-  let msg = !sel.auto.enabled ? 'Đang tắt. Các mốc giờ trên là dự kiến khi bật.'
+  const hourly = sel.auto.mode === 'hourly';
+  let msg = !sel.auto.enabled ? `Đang tắt. ${hourly ? 'Các giờ' : 'Các mốc giờ'} trên là dự kiến khi bật.`
+    : hourly ? (sel.next ? `Chạy liên tục mỗi giờ, giờ kế tiếp bắt đầu lúc ${sel.next}.` : 'Đã chạy hết các giờ hôm nay, tiếp tục từ 00:00.')
     : sel.next ? `Lượt kế tiếp lúc ${sel.next} hôm nay.` : 'Đã chạy hết các mốc hôm nay, lượt kế tiếp vào ngày mai.';
-  if (sel.running && sel.current) msg = `Đang đồng bộ: ${sel.current.done}/${sel.current.total} mục...`;
-  else if (sel.lastRun) msg += ` Lượt gần nhất ${fmtTime(sel.lastRun.finishedAt)}: ${sel.lastRun.ok} thành công, ${sel.lastRun.error} lỗi, ${sel.lastRun.skipped} bỏ qua, ${fmtNum(sel.lastRun.calls)} lượt gọi API.`;
+  const c = sel.current;
+  if (sel.running && c && c.mode === 'hourly') {
+    msg = `Đang chạy giờ ${(c.slot || '').split(' ')[1] || ''}: ${fmtNum(c.runs)} lần chạy, ${fmtNum(c.calls)} lượt gọi API (${sel.hourUsed.used}/${sel.hourUsed.limit} lượt trong 60 phút). Các lần chạy được rải đều trong giờ.`;
+  } else if (sel.running && c) msg = `Đang đồng bộ: ${c.done}/${c.total} mục...`;
+  else if (sel.lastRun) msg += ` Lượt gần nhất ${fmtTime(sel.lastRun.finishedAt)}: ${sel.lastRun.runs ? `${fmtNum(sel.lastRun.runs)} lần chạy, ` : ''}${sel.lastRun.ok} mục thành công, ${sel.lastRun.error} lỗi, ${sel.lastRun.skipped} bỏ qua, ${fmtNum(sel.lastRun.calls)} lượt gọi API.`;
   $('#a-status').textContent = msg;
   const names = sel.unscheduled.map((k) => (S.items.get(k) || {}).name || k);
   $('#a-warn').textContent = names.length
     ? `Không có mốc giờ nào nằm trong khung được phép của: ${names.join(', ')}. Hãy thêm mốc giờ phù hợp (xem nhãn giờ cạnh từng mục).` : '';
   $('#auto-run').disabled = sel.running;
-  $('#a-policy').innerHTML = `${policyHtml()}<p class="hint">Mỗi mốc giờ chỉ chạy các mục được phép trong khung giờ đó, lần lượt từng mục.
+  $('#a-policy').innerHTML = `${policyHtml()}<p class="hint">${hourly ? `Liên tục mỗi giờ: mỗi giờ chạy lặp vòng tròn các mục được phép trong khung giờ đó, rải đều trong giờ cho đến khi dùng hết ${limit} lượt.
+    Mục bị lỗi hoặc bị LGSP chặn hạn mức ngày thì tạm bỏ qua, giờ sau thử lại. Truy vấn tay cũng dùng chung số lượt này, nên khi cần truy vấn tay hãy tạm tắt.` : ''}
+    Mỗi mốc giờ chỉ chạy các mục được phép trong khung giờ đó, lần lượt từng mục.
     Khi xã đã dùng đủ ${limit} lượt trong 60 phút (tính cả truy vấn tay), đồng bộ tự động chờ có lượt trống rồi chạy tiếp.
     Máy chủ phải đang chạy đúng giờ thì lịch mới chạy.</p>`;
 }
@@ -799,7 +812,7 @@ function renderOverview() {
     <tbody>${rows.map((r) => `<tr>
       <td class="nw"><button class="link" data-xa="${esc(r.xaId)}">${esc(r.xaName)}</button></td>
       <td>${r.running ? statusBadge('running') : r.enabled ? '<span class="badge-st st-ok">Bật</span>' : '<span class="badge-st st-pending">Tắt</span>'}</td>
-      <td>${esc(r.times.join(', '))}</td><td class="num">${r.items}</td><td>${r.enabled && r.next ? r.next : ''}</td>
+      <td>${r.mode === 'hourly' ? 'Liên tục mỗi giờ' : esc(r.times.join(', '))}</td><td class="num">${r.items}</td><td>${r.enabled && r.next ? r.next : ''}</td>
       <td class="nw">${r.lastRun ? `${fmtTime(r.lastRun.finishedAt)} · ${r.lastRun.ok} ok, ${r.lastRun.error} lỗi` : ''}</td>
     </tr>`).join('')}</tbody></table>`;
 }
@@ -808,6 +821,7 @@ function readAutoForm() {
   return {
     xaId: S.autoXa,
     enabled: $('#a-enabled').checked,
+    mode: $('#a-mode').value,
     times: $('#a-times').value,
     days: Number($('#a-days').value),
     items: $$('#a-items input:checked').map((el) => el.value),
@@ -817,11 +831,33 @@ function readAutoForm() {
 async function saveAuto() {
   const form = readAutoForm();
   if (!form.items.length) return toast('Chọn ít nhất một mục để đồng bộ');
-  if (form.enabled && !form.times.trim()) return toast('Nhập ít nhất một mốc giờ');
+  if (form.enabled && form.mode === 'times' && !form.times.trim()) return toast('Nhập ít nhất một mốc giờ');
   await api('/api/auto', { method: 'PUT', body: JSON.stringify(form) });
   S.autoFormDirty = false;
   await loadAutoTab();
   toast('Đã lưu lịch đồng bộ tự động');
+}
+
+// Một nút bật chạy liên tục mỗi giờ: lấy các mục đã truy vấn thành công gần nhất của xã (bỏ mục đang lỗi như
+// chưa đăng ký API); mỗi giờ máy chủ chạy lặp các mục được phép trong khung giờ đó đến khi hết lượt của giờ.
+
+async function presetAuto() {
+  const xa = S.config.xa.find((x) => x.id === S.autoXa);
+  if (!xa) return;
+  const ok = [...S.items.keys()].filter((k) => (S.tasks.get(taskKey(xa.id, k)) || {}).status === 'ok');
+  const items = ok.length ? ok : ['qlvbdh.vbden', 'qlvbdh.vbdi'];
+  const byWin = (w) => items.filter((k) => winOf(k) === w || winOf(k) === 'any').map((k) => S.items.get(k).name);
+  const short = (n) => (n.length > 6 ? `${n.slice(0, 6).join(', ')} và ${n.length - 6} mục khác` : n.join(', ') || '(không có mục nào)');
+  const limit = S.policy.hourlyLimit;
+  if (!confirm(`Bật chạy liên tục mỗi giờ cho ${xa.name}${ok.length ? '' : ' (chưa có mục nào chạy thành công, dùng mặc định)'}:\n\n`
+    + `• 07:00–18:00: ${short(byWin('day'))}\n• 18:00–07:00: ${short(byWin('night'))}\n\n`
+    + `Mỗi giờ chạy lặp các mục trên, rải đều trong giờ đến khi dùng hết ${limit} lượt kết nối, suốt 24 giờ. `
+    + `Mục nào hết hạn mức ngày của LGSP thì tạm dừng đến 7:00 sáng hôm sau.\n\nĐồng ý?`)) return;
+  const cur = S.auto.selected ? S.auto.selected.auto : {};
+  await api('/api/auto', { method: 'PUT', body: JSON.stringify({ xaId: xa.id, enabled: true, mode: 'hourly', times: cur.times || [], days: 7, items }) });
+  S.autoFormDirty = false;
+  await loadAutoTab();
+  toast(`Đã bật chạy liên tục mỗi giờ cho ${xa.name}`);
 }
 
 const callsSub = (t) => `${fmtNum(t.ok)} thành công · ${fmtNum(t.err)} lỗi${t.throttled ? ` (${fmtNum(t.throttled)} bị chặn)` : ''}`;
@@ -864,14 +900,14 @@ function renderUsage() {
     <tbody>${u.runs.map((r) => `<tr>
       <td class="nw">${fmtTime(r.startedAt)}</td>
       <td class="nw">${esc(r.xaName || 'Nhiều xã (bản cũ)')}</td>
-      <td class="nw">${r.trigger === 'auto' ? `Theo lịch ${esc((r.slot || '').split(' ')[1] || '')}` : 'Chạy ngay'}</td>
+      <td class="nw">${r.trigger === 'auto' ? `${r.mode === 'hourly' ? 'Mỗi giờ' : 'Theo lịch'} ${esc((r.slot || '').split(' ')[1] || '')}` : 'Chạy ngay'}</td>
       <td class="nw">${viDate(r.from)} – ${viDate(r.to)}</td>
       <td class="num"><b class="ok-text">${fmtNum(r.ok)}</b></td><td class="num">${r.error ? `<b class="err-text">${fmtNum(r.error)}</b>` : 0}</td><td class="num">${fmtNum(r.skipped)}</td>
       <td class="num">${fmtNum(r.rows)}</td><td class="num">${fmtNum(r.calls)} <span class="hint">(${fmtNum(r.callsOk)} ok)</span></td>
       <td class="num">${fmtDur(Date.parse(r.finishedAt) - Date.parse(r.startedAt))}</td>
       <td><details class="run-detail"><summary>${r.tasks.length} tác vụ</summary><table><tbody>${r.tasks.map((x) => `<tr>
         <td class="nw">${esc(x.xaName)}</td><td class="nw">${esc(x.itemName)}</td><td>${statusBadge(x.status)}</td>
-        <td class="num">${x.status === 'ok' ? fmtNum(x.count) + ' bản ghi' : ''}</td><td class="num">${fmtNum(x.calls)} lượt</td>
+        <td class="num">${x.status === 'ok' ? fmtNum(x.count) + ' bản ghi' : ''}</td><td class="num">${x.runs > 1 ? `${fmtNum(x.runs)} lần · ` : ''}${fmtNum(x.calls)} lượt</td>
         <td class="err-text">${esc(x.error || '')}</td></tr>`).join('')}</tbody></table></details></td>
     </tr>`).join('')}</tbody></table>` : '<div class="empty">Chưa có lượt đồng bộ nào.</div>';
 
@@ -1103,6 +1139,8 @@ function bindEvents() {
   }, 15000);
   $('#tab-auto').addEventListener('input', (e) => { if (e.target.closest('.auto-grid > .card:first-child')) S.autoFormDirty = true; });
   $('#auto-save').onclick = () => saveAuto().catch((e) => toast(e.message));
+  $('#auto-preset').onclick = () => presetAuto().catch((e) => toast(e.message));
+  $('#a-mode').addEventListener('change', syncModeUi);
   const pickAutoXa = (id) => {
     S.autoXa = id;
     S.autoFormDirty = false;

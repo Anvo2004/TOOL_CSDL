@@ -93,11 +93,16 @@ async function changePassword(username, current, next) {
 
 async function update(username, { xaId, disabled }) {
   const u = { ...mustGet(username) };
-  if (xaId != null) u.xaId = xaId;
+  let logout = false;
+  if (xaId != null && xaId !== u.xaId) {
+    u.xaId = xaId;
+    logout = true;
+  }
   if (disabled != null && !!disabled !== !!u.disabled) {
     u.disabled = !!disabled;
-    u.ver = (u.ver || 0) + 1; // khóa thì đăng xuất ngay
+    logout = true;
   }
+  if (logout) u.ver = (u.ver || 0) + 1; // khóa / chuyển xã thì đăng xuất ngay
   await save(u);
   return publicUser(u);
 }

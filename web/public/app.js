@@ -941,7 +941,7 @@ function renderConfig() {
   $('#cfg-windows').innerHTML = windowsHtml();
   $('#cfg-xa-title').textContent = admin ? 'Danh sách xã / phường' : 'Cấu hình kết nối của xã';
   $('#cfg-xa').innerHTML = S.config.xa.map((x, idx) => xaCardHtml(x, idx, admin)).join('') || '<p class="hint">Chưa có xã nào.</p>';
-  if (admin) renderUsers();
+  if (admin && !$('#tab-accounts').classList.contains('hidden')) renderUsers();
 }
 
 // Khung giờ từng mục: mục lẻ (QLVBDH, Cổng TTĐT...) chỉnh riêng từng mục, CSDL Phường xã chỉnh chung cả nhóm.
@@ -1008,17 +1008,20 @@ async function renderUsers() {
     $('#users-wrap').innerHTML = `<div class="empty">${esc(e.message)}</div>`;
     return;
   }
-  const xaName = (id) => (S.config.xa.find((x) => x.id === id) || {}).name;
+  const xas = S.config.xa.filter((x) => x.id);
+  const xaSelect = (u) => `<select class="input" data-uxa="${esc(u.username)}">
+    ${xas.some((x) => x.id === u.xaId) ? '' : `<option value="" selected>Xã đã xóa (${esc(u.xaId)})</option>`}
+    ${xas.map((x) => `<option value="${esc(x.id)}" ${x.id === u.xaId ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select>`;
   $('#users-wrap').innerHTML = S.users.length ? `<table>
-    <thead><tr><th>Tên đăng nhập</th><th>Xã / phường</th><th>Trạng thái</th><th>Tạo lúc</th><th>Đổi mật khẩu</th><th>Đăng nhập gần nhất</th><th>Thao tác</th></tr></thead>
+    <thead><tr><th>Tên đăng nhập</th><th>Xã / phường được cấp quyền</th><th>Trạng thái</th><th>Tạo lúc</th><th>Đổi mật khẩu</th><th>Đăng nhập gần nhất</th><th>Thao tác</th></tr></thead>
     <tbody>${S.users.map((u) => `<tr>
       <td class="nw"><b>${esc(u.username)}</b></td>
-      <td class="nw">${xaName(u.xaId) ? esc(xaName(u.xaId)) : `<span class="err-text">Xã đã xóa (${esc(u.xaId)})</span>`}</td>
+      <td>${xaSelect(u)}</td>
       <td>${u.disabled ? '<span class="badge-st st-error">Đã khóa</span>' : '<span class="badge-st st-ok">Hoạt động</span>'}</td>
       <td class="nw">${fmtTime(u.createdAt)}</td><td class="nw">${fmtTime(u.passwordChangedAt)}</td>
       <td class="nw">${fmtTime(u.lastLoginAt) || '<span class="hint">chưa đăng nhập</span>'}</td>
       <td class="actions">
-        <button class="btn sm" data-uact="reset" data-u="${esc(u.username)}">Đặt lại mật khẩu</button>
+        <button class="btn sm" data-uact="reset" data-u="${esc(u.username)}">Đặt mật khẩu</button>
         <button class="btn sm" data-uact="${u.disabled ? 'enable' : 'disable'}" data-u="${esc(u.username)}">${u.disabled ? 'Mở khóa' : 'Khóa'}</button>
         <button class="btn sm danger" data-uact="delete" data-u="${esc(u.username)}">Xóa</button>
       </td></tr>`).join('')}</tbody></table>` : '<div class="empty">Chưa có tài khoản xã nào.</div>';
@@ -1043,8 +1046,11 @@ async function userAction(btn) {
   const act = btn.dataset.uact;
   const path = `/api/users/${encodeURIComponent(u)}`;
   if (act === 'reset') {
-    if (!confirm(`Đặt lại mật khẩu cho "${u}"? Tài khoản này sẽ bị đăng xuất.`)) return;
-    showPassword(u, (await api(`${path}/password`, { method: 'POST', body: '{}' })).password);
+    const password = prompt(`Mật khẩu mới cho "${u}" (ít nhất 8 ký tự; để trống để web tự tạo). Tài khoản này sẽ bị đăng xuất.`, '');
+    if (password === null) return;
+    const r = await api(`${path}/password`, { method: 'POST', body: JSON.stringify({ password: password.trim() }) });
+    if (r.password) showPassword(u, r.password);
+    else toast(`Đã đặt mật khẩu mới cho ${u}`);
   } else if (act === 'enable' || act === 'disable') {
     await api(path, { method: 'PUT', body: JSON.stringify({ disabled: act === 'disable' }) });
   } else if (act === 'delete') {
@@ -1088,6 +1094,7 @@ function bindEvents() {
     $$('.tab-page').forEach((p) => p.classList.toggle('hidden', p.id !== `tab-${b.dataset.tab}`));
     if (b.dataset.tab === 'history') loadHistory();
     if (b.dataset.tab === 'auto') loadAutoTab().catch((e) => toast(e.message));
+    if (b.dataset.tab === 'accounts') renderUsers();
   }));
 
   // Tab tự động: tải lại số liệu mỗi 15 giây khi đang mở.
@@ -1201,6 +1208,16 @@ function bindEvents() {
   $('#cfg-save').onclick = () => saveConfig().catch((e) => toast(e.message));
   $('#cfg-save-xa').onclick = () => saveConfig().catch((e) => toast(e.message));
   $('#user-form').addEventListener('submit', (e) => createUser(e).catch((err) => toast(err.message, 5000)));
+  $('#users-refresh').onclick = () => renderUsers();
+  $('#users-wrap').addEventListener('change', async (e) => {
+    const sel = e.target.closest('[data-uxa]');
+    if (!sel || !sel.value) return;
+    const name = (S.config.xa.find((x) => x.id === sel.value) || {}).name;
+    if (!confirm(`Chuyển quyền tài khoản "${sel.dataset.uxa}" sang ${name}? Tài khoản này sẽ bị đăng xuất.`)) return renderUsers();
+    await api(`/api/users/${encodeURIComponent(sel.dataset.uxa)}`, { method: 'PUT', body: JSON.stringify({ xaId: sel.value }) }).catch((err) => toast(err.message, 5000));
+    toast(`Đã cấp quyền ${name} cho ${sel.dataset.uxa}`);
+    renderUsers();
+  });
   $('#users-wrap').addEventListener('click', (e) => {
     const btn = e.target.closest('[data-uact]');
     if (btn) userAction(btn).catch((err) => toast(err.message, 5000));

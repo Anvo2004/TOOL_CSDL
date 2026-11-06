@@ -40,7 +40,7 @@ Web luôn áp dụng ở phía máy chủ (tài khoản xã không tắt đượ
 ## Tài khoản
 
 - **Quản trị**: `APP_USERNAME` / `APP_PASSWORD` (biến môi trường). Thấy mọi xã, sửa cấu hình chung, quy định kết nối, thêm/xóa xã, tạo tài khoản xã.
-- **Tài khoản xã**: quản trị tạo ở tab **Cấu hình → Tài khoản đăng nhập của các xã** (để trống mật khẩu thì web tự tạo, chỉ hiện một lần). Mỗi tài khoản gắn với một xã, chỉ thấy xã đó: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối của xã, xem lịch sử và lượt gọi. Xã tự đổi mật khẩu bằng nút **Đổi mật khẩu**.
+- **Tài khoản xã**: quản trị tạo ở tab **Tài khoản xã/phường** (tự đặt tên đăng nhập, mật khẩu và chọn xã được cấp quyền; đổi ô xã để chuyển quyền) (để trống mật khẩu thì web tự tạo, chỉ hiện một lần). Mỗi tài khoản gắn với một xã, chỉ thấy xã đó: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối của xã, xem lịch sử và lượt gọi. Xã tự đổi mật khẩu bằng nút **Đổi mật khẩu**.
 - Mật khẩu lưu dạng băm scrypt. Khóa, đặt lại mật khẩu hoặc xóa tài khoản thì phiên đang đăng nhập bị thoát ngay. Sai mật khẩu 8 lần thì khóa đăng nhập 15 phút theo địa chỉ IP.
 
 ## Tự động & hạn mức

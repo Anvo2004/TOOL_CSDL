@@ -22,6 +22,7 @@
       <button class="tab" data-tab="auto">Tự động &amp; hạn mức</button>
       <button class="tab" data-tab="history">Lịch sử</button>
       <button class="tab" data-tab="config">Cấu hình</button>
+      <button class="tab admin-only" data-tab="accounts">Tài khoản xã/phường</button>
       <span class="me hidden" id="me"></span>
       <button class="tab hidden" id="btn-passwd">Đổi mật khẩu</button>
       <button class="tab hidden" id="btn-logout">Đăng xuất</button>
@@ -46,7 +47,7 @@
       <section class="card">
         <div class="card-head">
           <h2><span class="step">2</span>Xã / phường</h2>
-          <div class="mini-actions">
+          <div class="mini-actions admin-only">
             <button class="link" id="xa-all">Tất cả</button>
             <button class="link" id="xa-none">Bỏ chọn</button>
           </div>
@@ -275,20 +276,37 @@
       </div>
       <div id="cfg-xa" class="xa-cards"></div>
     </section>
+  </main>
 
-    <section class="card admin-only" id="users-card">
-      <div class="table-toolbar"><h2>Tài khoản đăng nhập của các xã</h2></div>
+  <!-- ============ TÀI KHOẢN XÃ / PHƯỜNG (quản trị) ============ -->
+  <main id="tab-accounts" class="tab-page hidden">
+    <section class="card" id="users-card">
+      <div class="table-toolbar">
+        <h2>Tạo tài khoản cho xã / phường</h2>
+        <span class="hint">Tài khoản quản trị là APP_USERNAME / APP_PASSWORD đặt trên Render</span>
+      </div>
       <form id="user-form" class="form-grid compact user-form" autocomplete="off">
         <label>Tên đăng nhập<input class="input" name="username" placeholder="vd: dienbanbac" required></label>
-        <label>Mật khẩu (để trống = tự tạo)<input class="input" name="password" type="text" autocomplete="new-password"></label>
-        <label>Xã / phường<select class="input" name="xaId" id="user-xa"></select></label>
+        <label>Mật khẩu (ít nhất 8 ký tự, để trống = tự tạo)<input class="input" name="password" type="text" autocomplete="new-password"></label>
+        <label>Cấp quyền cho xã / phường<select class="input" name="xaId" id="user-xa"></select></label>
         <button class="btn primary" type="submit">＋ Tạo tài khoản</button>
       </form>
+      <p class="hint">
+        Tài khoản xã đăng nhập vào chỉ thấy đúng một xã được cấp: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối
+        của xã, xem lịch sử và số lượt gọi. Không thấy xã khác, không vào được tab Tài khoản và không đổi được quy định kết nối.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="table-toolbar">
+        <h2>Danh sách tài khoản</h2>
+        <button class="btn" id="users-refresh">↻ Tải lại</button>
+      </div>
       <div class="table-wrap" id="users-wrap"></div>
       <p class="hint">
-        Mỗi tài khoản chỉ thấy và làm việc với đúng xã của mình: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối,
-        xem lịch sử và số lượt gọi. Tài khoản xã không đổi được quy định kết nối và không thấy xã khác. Mật khẩu tự tạo chỉ hiện một lần,
-        hãy sao chép gửi cho xã; xã tự đổi mật khẩu bằng nút "Đổi mật khẩu". Khóa hoặc đặt lại mật khẩu thì phiên đang đăng nhập bị thoát ngay.
+        Đổi ô "Xã / phường" để chuyển quyền tài khoản sang xã khác. "Đặt mật khẩu": tự nhập mật khẩu mới hoặc để trống để web tự tạo
+        (chỉ hiện một lần, hãy sao chép gửi cho xã). Xã tự đổi mật khẩu bằng nút "Đổi mật khẩu" trên thanh trên cùng.
+        Khóa, đặt mật khẩu mới, chuyển xã hoặc xóa thì phiên đang đăng nhập của tài khoản đó bị thoát ngay.
       </p>
     </section>
   </main>

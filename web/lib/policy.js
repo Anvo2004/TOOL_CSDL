@@ -11,7 +11,7 @@ const { fmtVN, sleep } = require('./util');
 const DOC = 'CV 7779/SKHCN-CNTT';
 const HOUR_MS = 3600000;
 const VN_OFFSET = 7 * HOUR_MS;
-const DEFAULT_HOURLY_LIMIT = 45; // quy định 50 lượt/giờ, chừa 5 lượt cho Postman / thử token
+const DEFAULT_HOURLY_LIMIT = 50; // quy định tối đa 50 lượt/giờ cho mỗi cơ quan
 
 const WINDOWS = {
   day: { from: 7 * 60, to: 18 * 60, label: '07:00–18:00', name: 'Giờ hành chính (dịch vụ ưu tiên)' },
@@ -70,7 +70,7 @@ async function init() {
   for (const r of await store.loadRates()) recent.set(r._id, (r.ts || []).filter((x) => x > Date.now() - HOUR_MS));
 }
 
-const limitOf = (settings) => Math.max(1, Number(settings.policy_hourly_limit) || DEFAULT_HOURLY_LIMIT);
+const limitOf = (settings) => Math.min(store.MAX_HOURLY, Math.max(1, Number(settings.policy_hourly_limit) || DEFAULT_HOURLY_LIMIT));
 
 function prune(xaId, t) {
   const a = (recent.get(xaId) || []).filter((x) => x > t - HOUR_MS);
@@ -120,6 +120,7 @@ function describe(settings, items, xaList) {
   return {
     doc: DOC,
     hourlyLimit: limitOf(settings),
+    maxHourly: store.MAX_HOURLY,
     windows: Object.fromEntries(Object.entries(WINDOWS).map(([k, w]) => [k, { label: w.label, name: w.name, open: inWindow(k, min) }])),
     itemWindows: Object.fromEntries(items.map((it) => [it.key, windowOf(settings, it)])),
     hourly: xaList.map((x) => ({ xaId: x.id, xaName: x.name, ...hourly(settings, x.id) })),

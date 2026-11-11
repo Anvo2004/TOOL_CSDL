@@ -251,13 +251,13 @@
       <fieldset class="plain">
         <legend>Quy định kết nối Trục LGSP (CV 7779/SKHCN-CNTT, áp dụng từ 05/11/2026)</legend>
         <div class="form-grid compact">
-          <label>Số lượt kết nối tối đa mỗi xã trong 60 phút<input class="input" type="number" data-setting="policy_hourly_limit" id="cfg-hourly" min="1"></label>
+          <label>Số lượt kết nối tối đa mỗi xã trong 60 phút<input class="input" type="number" data-setting="policy_hourly_limit" id="cfg-hourly" min="1" max="50"></label>
         </div>
         <div class="table-wrap" id="cfg-windows"></div>
         <p class="hint">
           Quy định: mỗi cơ quan tối đa <b>50 lần/giờ</b>; 07:00–18:00 dành cho dịch vụ ưu tiên (giải quyết TTHC, Myportal, Giao nhiệm vụ,
-          Lịch cơ quan); các hệ thống còn lại (thống kê, báo cáo...) kết nối 18:00–07:00. Web để mặc định 45 lượt/giờ, chừa phần còn lại cho
-          Postman và thử token, vì LGSP đếm chung mọi nơi dùng cùng khóa. Chỉ nâng số lượt hoặc chọn "Cả ngày" khi đã có văn bản chấp thuận
+          Lịch cơ quan); các hệ thống còn lại (thống kê, báo cáo...) kết nối 18:00–07:00. Web để mặc định dùng đủ 50 lượt/giờ; nếu còn dùng Postman
+          với cùng khóa thì hạ số này xuống, vì LGSP đếm chung mọi nơi dùng cùng khóa. Chỉ nâng số lượt hoặc chọn "Cả ngày" khi đã có văn bản chấp thuận
           của Sở KH&amp;CN.
         </p>
       </fieldset>

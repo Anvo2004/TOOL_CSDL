@@ -71,6 +71,7 @@ async function getToken(settings, xa, force = false) {
 async function api(settings, xa, url, opts = {}) {
   const sys = usage.sysOf(settings, url);
   for (let attempt = 0; attempt < 2; attempt++) {
+    usage.check(settings, xa, sys);
     const token = await getToken(settings, xa, attempt > 0);
     await usage.before(settings, xa, sys);
     let r;
@@ -321,8 +322,11 @@ async function runItem({ settings, xa, item, from, to, log }) {
         if (item.action === 'getDanhSachDonVi') {
           res = extractRows(await qlvbdhCall(ctx, item.action, { type: '001' }, { data: {} }));
         } else if (item.action === 'LichCongTac') {
-          if (!xa.lct_username || xa.lct_username.startsWith('ten@')) throw new Error(`Xã "${xa.name}" chưa cấu hình tài khoản lịch công tác (lct_username)`);
-          res = extractRows(await qlvbdhCall(ctx, item.action, { kieuLCT: 1, username: xa.lct_username, maPhongBan: '', ...dateParams }));
+          // Không chặn khi chưa có tài khoản: vẫn gửi yêu cầu để lấy jobId → kết quả (lịch cơ quan, kieuLCT = 1).
+          const user = String(xa.lct_username || '').trim();
+          const username = /^ten@/i.test(user) ? '' : user;
+          if (!username) log('  chưa cấu hình tài khoản lịch công tác (lct_username), gửi username rỗng để lấy lịch của cơ quan');
+          res = extractRows(await qlvbdhCall(ctx, item.action, { kieuLCT: 1, username, maPhongBan: '', ...dateParams }));
         } else {
           const numberKey = item.action === 'getVanBanDen' ? { soDen: '', vanBanDiId: '' } : { soDi: '' };
           const call = (a, b, page) => qlvbdhCall(ctx, item.action, {

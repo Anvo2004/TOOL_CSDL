@@ -32,7 +32,7 @@ Sau đó mở http://localhost:3000. Trên Windows có thể bấm đúp `start.
 
 Web luôn áp dụng ở phía máy chủ (tài khoản xã không tắt được, truy vấn tay, chạy lặp và đồng bộ tự động đều phải theo):
 
-- **Số lượt kết nối mỗi xã**: quy định 50 lần/giờ cho mỗi cơ quan. Web đếm theo từng xã (mỗi xã một khóa LGSP), cửa sổ trượt 60 phút, tính cả lượt lấy token, mặc định dừng ở **45 lượt** để chừa phần cho Postman / thử token (LGSP đếm chung mọi nơi dùng cùng khóa). Bộ đếm được lưu nên khởi động lại máy chủ không bị mất.
+- **Số lượt kết nối mỗi xã**: quy định 50 lần/giờ cho mỗi cơ quan. Web đếm theo từng xã (mỗi xã một khóa LGSP), cửa sổ trượt 60 phút, tính cả lượt lấy token, mặc định dùng đủ **50 lượt** (nếu còn dùng Postman với cùng khóa thì hạ số này trong tab Cấu hình, vì LGSP đếm chung mọi nơi dùng cùng khóa). Bộ đếm được lưu nên khởi động lại máy chủ không bị mất.
 - **Khung giờ**: 07:00–18:00 dành cho dịch vụ ưu tiên (giải quyết TTHC, Myportal, Giao nhiệm vụ, Lịch cơ quan); các hệ thống còn lại kết nối 18:00–07:00. Mặc định: Lịch công tác và Việc VPUB chạy ban ngày, các mục còn lại (văn bản đến/đi, góp ý, Cổng TTĐT, CSDL Phường xã...) chạy ngoài giờ. Mỗi mục có nhãn <code>07–18h</code> / <code>18–07h</code> trên giao diện.
 - Truy vấn tay ngoài khung giờ, hoặc khi không còn đủ lượt trong 60 phút, bị bỏ qua kèm giờ chạy lại được. Tác vụ cần nhiều lượt hơn cả giới hạn giờ (ví dụ QLVBDH khoảng ngày rất dài) phải chia nhỏ khoảng ngày.
 - Quản trị chỉnh số lượt và khung giờ từng mục ở tab **Cấu hình**; chỉ nâng khi đã có văn bản chấp thuận của Sở KH&CN.

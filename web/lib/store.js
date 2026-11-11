@@ -33,7 +33,7 @@ const DEFAULT_SETTINGS = {
   job_timeout_sec: 120,
   csdlpx_limit: 10000,
   // Quy định kết nối LGSP (xem lib/policy.js). Lịch đồng bộ tự động lưu riêng trong từng xã (xa.auto).
-  policy_hourly_limit: 45,
+  policy_hourly_limit: 50,
   policy_windows: {},
 };
 const WINDOW_VALUES = ['day', 'night', 'any'];
@@ -78,7 +78,13 @@ async function readRawConfig() {
 
 async function loadConfig() {
   const raw = await readRawConfig();
-  return { settings: { ...DEFAULT_SETTINGS, ...(raw.settings || {}) }, xa: raw.xa || [] };
+  const settings = { ...DEFAULT_SETTINGS, ...(raw.settings || {}) };
+  // Bản cũ mặc định 45 lượt/giờ (chừa 5 lượt cho Postman); nay dùng đủ 50 lượt theo CV 7779.
+  if (!settings.policy_limit_v2) {
+    if (Number(settings.policy_hourly_limit) === 45) settings.policy_hourly_limit = DEFAULT_SETTINGS.policy_hourly_limit;
+    settings.policy_limit_v2 = true;
+  }
+  return { settings, xa: raw.xa || [] };
 }
 
 async function saveConfig(cfg) {
@@ -118,7 +124,7 @@ async function updateConfig(incoming) {
   });
   const settings = { ...cur.settings, ...(incoming.settings || {}) };
   for (const k of ['page_size', 'qlvbdh_page_size', 'max_pages', 'job_timeout_sec', 'csdlpx_limit']) settings[k] = Math.max(1, Number(settings[k]) || DEFAULT_SETTINGS[k]);
-  settings.policy_hourly_limit = Math.min(10000, Math.max(1, Math.round(Number(settings.policy_hourly_limit) || DEFAULT_SETTINGS.policy_hourly_limit)));
+  settings.policy_hourly_limit = Math.min(MAX_HOURLY, Math.max(1, Math.round(Number(settings.policy_hourly_limit) || DEFAULT_SETTINGS.policy_hourly_limit)));
   settings.policy_windows = Object.fromEntries(Object.entries(settings.policy_windows || {}).filter(([, v]) => WINDOW_VALUES.includes(v)));
   await saveConfig({ settings, xa });
 }
@@ -140,6 +146,10 @@ async function updateXa(xaId, incoming) {
   }
   await saveConfig(cfg);
 }
+
+// CV 7779/SKHCN-CNTT mục 1a: tối đa 50 lần/giờ mỗi cơ quan. Chỉ nâng (biến môi trường POLICY_MAX_HOURLY)
+// khi đã có văn bản chấp thuận của Sở KH&CN.
+const MAX_HOURLY = Math.max(1, Number(process.env.POLICY_MAX_HOURLY) || 50);
 
 async function setXaAuto(xaId, auto) {
   const cfg = await loadConfig();
@@ -344,6 +354,6 @@ function exportFiles(result) {
 
 module.exports = {
   ROOT, EXPORT_DIR, KEEP_ROWS, init, storageName, loadConfig, saveConfig, maskedConfig, updateConfig, updateXa, setXaAuto, patchSettings,
-  saveResult, loadResult, appendHistory, readHistory, latestStats, exportFiles,
+  MAX_HOURLY, saveResult, loadResult, appendHistory, readHistory, latestStats, exportFiles,
   incUsage, readUsage, loadQuotas, saveQuota, appendSyncRun, readSyncRuns, loadRates, saveRate, loadUsers, saveUser, deleteUser,
 };

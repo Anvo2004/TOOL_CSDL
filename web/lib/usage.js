@@ -65,7 +65,8 @@ function blockedReason(xa, sys) {
 
 // Gọi ngay trước mỗi lượt gọi API: chặn khi LGSP đang khóa, khi mục đang ngoài khung giờ được phép,
 // và giữ chỗ một lượt trong giới hạn lượt/giờ (đồng bộ tự động thì chờ đến khi có lượt trống).
-async function before(settings, xa, sys) {
+// check() không tốn lượt: gọi cả trước khi lấy token để ngoài khung giờ thì không kết nối gì.
+function check(settings, xa, sys) {
   const blocked = blockedReason(xa, sys);
   if (blocked) throw Object.assign(new Error(`${blocked} (không gửi yêu cầu để khỏi tốn lượt)`), { status: 429 });
   const m = meter.getStore();
@@ -73,7 +74,11 @@ async function before(settings, xa, sys) {
     const reason = policy.windowReason(settings, m.item);
     if (reason) throw Object.assign(new Error(reason), { policy: true });
   }
-  await policy.reserve(settings, xa, waitOpts(m));
+}
+
+async function before(settings, xa, sys) {
+  check(settings, xa, sys);
+  await policy.reserve(settings, xa, waitOpts(meter.getStore()));
 }
 
 const waitOpts = (m) => (m && m.wait ? { wait: true, until: m.waitUntil, onWait: m.onWait } : {});
@@ -192,5 +197,5 @@ async function report(days = 30, xaIds = null) {
 }
 
 module.exports = {
-  SYSTEMS, sysName, meter, init, sysOf, quotaDay, before, beforeToken, after, countTask, blockedReason, unblock, snapshot, report, nextUtcMidnight,
+  SYSTEMS, sysName, meter, init, sysOf, quotaDay, check, before, beforeToken, after, countTask, blockedReason, unblock, snapshot, report, nextUtcMidnight,
 };

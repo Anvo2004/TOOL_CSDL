@@ -974,6 +974,7 @@ function renderConfig() {
   $('#cfg-settings').innerHTML = SETTING_FIELDS.map(field).join('');
   $('#cfg-bases').innerHTML = BASE_FIELDS.map(field).join('');
   $('#cfg-hourly').value = s.policy_hourly_limit;
+  if (S.policy && S.policy.maxHourly) $('#cfg-hourly').max = S.policy.maxHourly;
   $('#cfg-windows').innerHTML = windowsHtml();
   $('#cfg-xa-title').textContent = admin ? 'Danh sách xã / phường' : 'Cấu hình kết nối của xã';
   $('#cfg-xa').innerHTML = S.config.xa.map((x, idx) => xaCardHtml(x, idx, admin)).join('') || '<p class="hint">Chưa có xã nào.</p>';

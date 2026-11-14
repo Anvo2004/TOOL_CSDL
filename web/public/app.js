@@ -952,6 +952,7 @@ const SETTING_FIELDS = [
   ['qlvbdh_page_size', 'Số bản ghi mỗi trang (QLVBDH)', 'number'],
   ['max_pages', 'Số trang tối đa mỗi lần', 'number'],
   ['job_timeout_sec', 'Thời gian chờ job QLVBDH (giây)', 'number'],
+  ['qlvbdh_job_reuse_min', 'Dùng lại jobId QLVBDH tối đa (phút, 0 = đến khi hết hạn)', 'number'],
   ['csdlpx_limit', 'Số bản ghi mỗi lần gọi (CSDL Phường xã)', 'number'],
 ];
 const BASE_FIELDS = [

@@ -32,6 +32,7 @@ const DEFAULT_SETTINGS = {
   qlvbdh_page_size: 1000,
   max_pages: 200,
   job_timeout_sec: 120,
+  qlvbdh_job_reuse_min: 0, // 0 = dùng lại jobId QLVBDH đến khi hết hạn
   csdlpx_limit: 10000,
   // Quy định kết nối LGSP (xem lib/policy.js). Lịch đồng bộ tự động lưu riêng trong từng xã (xa.auto).
   policy_hourly_limit: 50,
@@ -125,6 +126,7 @@ async function updateConfig(incoming) {
   });
   const settings = { ...cur.settings, ...(incoming.settings || {}) };
   for (const k of ['page_size', 'qlvbdh_page_size', 'max_pages', 'job_timeout_sec', 'csdlpx_limit']) settings[k] = Math.max(1, Number(settings[k]) || DEFAULT_SETTINGS[k]);
+  settings.qlvbdh_job_reuse_min = Math.max(0, Math.round(Number(settings.qlvbdh_job_reuse_min) || 0));
   settings.policy_hourly_limit = Math.min(MAX_HOURLY, Math.max(1, Math.round(Number(settings.policy_hourly_limit) || DEFAULT_SETTINGS.policy_hourly_limit)));
   settings.policy_windows = Object.fromEntries(Object.entries(settings.policy_windows || {}).filter(([, v]) => WINDOW_VALUES.includes(v)));
   await saveConfig({ settings, xa });

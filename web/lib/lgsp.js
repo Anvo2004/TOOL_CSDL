@@ -245,10 +245,56 @@ async function pollArtifact(settings, xa, base, jobId, deadline, log) {
   throw new Error(`Hết thời gian chờ kết quả job ${jobId}${last ? ` (HTTP ${last.status})` : ''}`);
 }
 
+// ---------- Dùng lại jobId ----------
+// Mỗi jobId gắn với một yêu cầu (xã + action + điều kiện lọc) và gọi /api/jobs/artifact được nhiều lần.
+// Lần sau cùng yêu cầu thì chỉ gọi lấy kết quả bằng jobId cũ (1 lượt) thay vì gửi yêu cầu mới và chờ callback;
+// khi LGSP báo jobId hết hạn / không còn thì tự gửi yêu cầu mới lấy jobId mới.
+// qlvbdh_job_reuse_min > 0: bắt buộc lấy jobId mới sau số phút này (0 = dùng đến khi hết hạn).
+const jobCache = new Map(); // khóa yêu cầu -> { jobId, at }
+const JOB_CACHE_MAX = 2000;
+
+function rememberJob(key, jobId) {
+  jobCache.delete(key);
+  jobCache.set(key, { jobId, at: Date.now() });
+  if (jobCache.size > JOB_CACHE_MAX) jobCache.delete(jobCache.keys().next().value);
+}
+
+// Lấy kết quả bằng jobId đã có. Trả null nếu jobId không dùng được nữa (hết hạn, lỗi, không tìm thấy).
+async function reuseJob(ctx, base, jobId, deadline) {
+  const { settings, xa, log } = ctx;
+  const r = await api(settings, xa, `${base}/api/jobs/artifact?jobId=${encodeURIComponent(jobId)}`, { headers: { 'Content-Type': 'application/json' } });
+  if (!r.ok) {
+    log(`  jobId ${jobId} không còn dùng được (HTTP ${r.status}), lấy jobId mới...`);
+    return null;
+  }
+  const st = String(findKey(r.json, /^(jobStatus|requestStatus)$/i) || '').toUpperCase();
+  if (FAILED.has(st)) {
+    log(`  jobId ${jobId} đã ${st}, lấy jobId mới...`);
+    return null;
+  }
+  if (PENDING.has(st)) return pollArtifact(settings, xa, base, jobId, deadline, log);
+  const be = bodyError(r.json);
+  if (be && /không tìm thấy dữ liệu/i.test(be)) return { data: [] };
+  if (be) {
+    log(`  jobId ${jobId} trả lỗi (${be}), lấy jobId mới...`);
+    return null;
+  }
+  log(`  dùng lại jobId ${jobId}`);
+  return r.json;
+}
+
 async function qlvbdhCall(ctx, action, params, extra = {}) {
   const { settings, xa, log } = ctx;
   if (!xa.organId || !xa.organKey) throw new Error(`Xã "${xa.name}" chưa cấu hình organId/organKey`);
   const base = settings.base_qlvbdh;
+  const cacheKey = JSON.stringify([xa.id, xa.organId, base, action, params, extra]);
+  const cached = jobCache.get(cacheKey);
+  const maxAgeMs = Math.max(0, Number(settings.qlvbdh_job_reuse_min) || 0) * 60000;
+  if (cached && (!maxAgeMs || Date.now() - cached.at < maxAgeMs)) {
+    const res = await reuseJob(ctx, base, cached.jobId, Date.now() + settings.job_timeout_sec * 1000);
+    if (res) return res;
+  }
+  jobCache.delete(cacheKey);
   await ensureCallback(settings, log);
   const body = {
     actionName: action,
@@ -275,7 +321,9 @@ async function qlvbdhCall(ctx, action, params, extra = {}) {
       jobId = await findJobIdFromCallbacks(settings, since, ids, deadline, log);
       if (!jobId) throw new Error(`Không nhận được jobId. Phản hồi gửi yêu cầu: ${JSON.stringify(r.json).slice(0, 300)}`);
     }
-    return await pollArtifact(settings, xa, base, jobId, deadline, log);
+    const result = await pollArtifact(settings, xa, base, jobId, deadline, log);
+    rememberJob(cacheKey, jobId);
+    return result;
   } catch (e) {
     // Hệ thống báo lỗi khi khoảng ngày / trang không có bản ghi nào: coi là kết quả rỗng.
     if (/không tìm thấy dữ liệu/i.test(e.message)) return { data: [] };

@@ -10,7 +10,8 @@ const { ITEMS } = require('../lib/catalog');
 
 test('VPS deployment: authenticated API and all LGSP adapters with isolated mock data', async (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'tool-csdl-test-'));
-  let app, base, cookie = '', upstreamCalls = 0, throttle = false;
+  let app, base, cookie = '', upstreamCalls = 0, throttle = false, submits = 0;
+  const expiredJobs = new Set();
   const mock = http.createServer(async (req, res) => {
     upstreamCalls++;
     let raw = '';
@@ -20,7 +21,13 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     if (req.url === '/token') return reply(200, { access_token: 'fixture-token', expires_in: 3600 });
     assert.equal(req.headers.authorization, 'Bearer fixture-token');
     if (throttle) return reply(429, { code: '900804' });
+    if (req.url.startsWith('/qlvbdh/api/jobs/artifact')) {
+      const jobId = new URL(req.url, 'http://x').searchParams.get('jobId');
+      if (expiredJobs.has(jobId)) return reply(404, { message: 'job not found' });
+      return reply(200, { jobId, jobStatus: 'DONE', data: [{ id: 'fixture-1', name: 'Dữ liệu thử nghiệm', nested: { value: 'a,b' } }], total: 1 });
+    }
     if (req.url === '/qlvbdh/api') {
+      submits++;
       const requestId = `request-${upstreamCalls}`;
       const cb = await fetch(body.params.callbackUrl, { method: 'POST', body: JSON.stringify({ requestId, jobId: `job-${upstreamCalls}`, jobStatus: 'DONE' }) });
       assert.equal(cb.status, 200);
@@ -98,6 +105,21 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal((await api('/api/history')).body.length, ITEMS.size);
     assert.equal((await api('/api/stats')).body.length, ITEMS.size);
     assert.ok((await api('/api/usage')).body.totals.today.calls > 0);
+  });
+  await t.test('QLVBDH reuses jobId until it expires', async () => {
+    const q = () => api('/api/query', 'POST', { xaId: 'fixture', itemKey: 'qlvbdh.vbden', from: '2026-11-01', to: '2026-11-07', autoSave: false });
+    const before = submits;
+    let r = await q();
+    assert.equal(r.body.count, 1);
+    assert.equal(submits, before, 'same request must reuse the existing jobId');
+    const reused = (r.body.logs || []).join('\n').match(/dùng lại jobId (\S+)/);
+    assert.ok(reused, JSON.stringify(r.body.logs));
+    expiredJobs.add(reused[1]);
+    r = await q();
+    assert.equal(r.body.count, 1);
+    assert.equal(submits, before + 1, 'expired jobId must be replaced by a new request');
+    r = await q();
+    assert.equal(submits, before + 1, 'new jobId is reused again');
   });
   await t.test('commune account lifecycle, isolation and session invalidation', async () => {
     assert.equal((await api('/api/users', 'POST', { username: 'fixture-user', password: 'fixture-password', xaId: 'fixture' })).status, 200);

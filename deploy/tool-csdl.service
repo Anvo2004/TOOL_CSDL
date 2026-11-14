@@ -1,0 +1,30 @@
+[Unit]
+Description=TOOL_CSDL LGSP application
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=tool-csdl
+Group=tool-csdl
+WorkingDirectory=/opt/tool-csdl/current/web
+EnvironmentFile=/etc/tool-csdl.env
+ExecStart=/usr/bin/node --max-old-space-size=192 server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tool-csdl
+MemoryAccounting=true
+MemoryHigh=256M
+MemoryMax=320M
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

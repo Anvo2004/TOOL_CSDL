@@ -7,6 +7,7 @@
 !/render.yaml
 !/README.md
 !/web/
+!/deploy/
 
 # Dữ liệu và bí mật bên trong web/
 web/config/

@@ -742,6 +742,7 @@ async function loadAutoTab() {
   const xa = S.autoXa || (S.config.xa.find((x) => x.id) || {}).id || '';
   const [auto, u] = await Promise.all([api(`/api/auto?xa=${encodeURIComponent(xa)}`), api('/api/usage?days=30')]);
   S.auto = auto;
+  $('#a-server-paused').classList.toggle('hidden', auto.schedulerEnabled !== false);
   S.usage = u;
   S.policy = u.policy;
   if (auto.selected) S.autoXa = auto.selected.xaId;

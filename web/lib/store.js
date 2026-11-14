@@ -6,7 +6,8 @@ const fs = require('fs');
 const path = require('path');
 const { toCsv, slug, pad } = require('./util');
 
-const ROOT = path.join(__dirname, '..');
+// VPS keeps writable state outside versioned releases; tests use an isolated directory.
+const ROOT = process.env.DATA_ROOT ? path.resolve(process.env.DATA_ROOT) : path.join(__dirname, '..');
 const CONFIG_FILE = path.join(ROOT, 'config', 'config.json');
 const DATA_DIR = path.join(ROOT, 'data');
 const RESULTS_DIR = path.join(DATA_DIR, 'results');

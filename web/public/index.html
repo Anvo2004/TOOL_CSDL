@@ -173,6 +173,7 @@
             <button class="btn primary" id="auto-save">💾 Lưu</button>
           </div>
         </div>
+        <p class="hint warn-text hidden" id="a-server-paused">Lịch tự động trên máy chủ đang tạm dừng. Các thiết lập vẫn được lưu; nút “Chạy ngay 1 lượt” vẫn hoạt động. Liên hệ người vận hành để mở lại lịch.</p>
         <label class="check"><input type="checkbox" id="a-enabled"> <b>Bật tự động đồng bộ mỗi ngày cho xã này</b></label>
         <div class="form-grid compact">
           <label class="span2">Cách chạy<select class="input" id="a-mode">
@@ -288,7 +289,7 @@
     <section class="card" id="users-card">
       <div class="table-toolbar">
         <h2>Tạo tài khoản cho xã / phường</h2>
-        <span class="hint">Tài khoản quản trị là APP_USERNAME / APP_PASSWORD đặt trên Render</span>
+        <span class="hint">Tài khoản quản trị do người vận hành máy chủ thiết lập</span>
       </div>
       <form id="user-form" class="form-grid compact user-form" autocomplete="off">
         <label>Tên đăng nhập<input class="input" name="username" placeholder="vd: dienbanbac" required></label>

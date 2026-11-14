@@ -1,0 +1,14 @@
+NODE_ENV=production
+HOST=127.0.0.1
+PORT=3010
+PUBLIC_URL=https://csdlapi.dxvtech.vn
+DATA_ROOT=/var/lib/tool-csdl
+TZ=Asia/Ho_Chi_Minh
+APP_USERNAME=admin
+APP_PASSWORD=REPLACE_WITH_RANDOM_PASSWORD
+SESSION_SECRET=REPLACE_WITH_RANDOM_SECRET
+# Keep false until the Render scheduler is stopped to avoid duplicate LGSP calls.
+SCHEDULER_ENABLED=false
+# Retain the existing production database if migrating from MongoDB on Render.
+# MONGODB_URI=mongodb+srv://...
+# MONGODB_DB=tool_csdl

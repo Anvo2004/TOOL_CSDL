@@ -30,7 +30,7 @@ const SESSION_SECRET = process.env.SESSION_SECRET || crypto.createHash('sha256')
 const SESSION_HOURS = 12;
 const failedLogins = new Map(); // ip -> { n, until }
 
-if (HOST !== '127.0.0.1' && !AUTH_ON) {
+if ((HOST !== '127.0.0.1' || process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || process.env.NODE_ENV === 'production') && !AUTH_ON) {
   console.error('Web đang mở ra Internet nhưng chưa đặt APP_USERNAME / APP_PASSWORD. Dừng để bảo vệ tài khoản LGSP.');
   process.exit(1);
 }
@@ -167,6 +167,7 @@ async function handleAuto(url, res, session) {
   const xaId = allowXa(session, url.searchParams.get('xa') || (xas[0] || {}).id);
   const xa = xaId && findXa(cfg, xaId);
   send(res, 200, {
+    schedulerEnabled: process.env.SCHEDULER_ENABLED !== 'false',
     selected: xa ? sync.status(cfg.settings, xa) : null,
     overview: isAdmin(session) ? cfg.xa.map((x) => {
       const st = sync.status(cfg.settings, x);
@@ -339,7 +340,7 @@ server.requestTimeout = 0;
 
 store.init().then(async () => {
   await Promise.all([usage.init(), policy.init(), users.init()]);
-  await sync.startScheduler();
+  if (process.env.SCHEDULER_ENABLED !== 'false') await sync.startScheduler();
   server.listen(PORT, HOST, () => {
     console.log(`Công cụ truy vấn LGSP đang chạy: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
     console.log(`Lưu trữ: ${store.storageName() === 'mongo' ? 'MongoDB' : `file (${store.EXPORT_DIR})`} · Đăng nhập: ${AUTH_ON ? 'bật' : 'tắt'}`);

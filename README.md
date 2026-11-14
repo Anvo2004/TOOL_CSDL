@@ -4,6 +4,8 @@ Web truy vấn dữ liệu LGSP cho nhiều xã/phường: QLVBDH (văn bản đ
 
 ## Triển khai lên Render
 
+Triển khai VPS với Nginx, HTTPS và systemd: xem [deploy/README.md](deploy/README.md). Biến `PUBLIC_URL` đặt địa chỉ callback; `DATA_ROOT` giữ dữ liệu ngoài thư mục mã nguồn; `SCHEDULER_ENABLED=false` tạm dừng lịch trong thời gian chuyển máy chủ.
+
 1. **New → Web Service**, chọn repo này. Language: **Docker**. Branch `main`. Root Directory để trống.
 2. Region: nên chọn **Singapore** (gần Việt Nam nhất).
 3. Mục **Environment Variables**:

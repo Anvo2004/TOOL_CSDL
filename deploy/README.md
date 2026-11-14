@@ -51,3 +51,7 @@ systemctl status certbot.timer --no-pager
 Trước mỗi cập nhật, sao lưu `/var/lib/tool-csdl` và `/etc/tool-csdl.env` vào thư mục root có quyền `0700`. Với MongoDB phải dùng bản sao lưu database tương ứng. Giữ bản release trước; trỏ lại symlink `current` và restart dịch vụ để rollback mã nguồn. Không ghi đè dữ liệu bằng backup cũ trừ khi đã xác định cần phục hồi dữ liệu.
 
 VPS 2 GB đang chạy nhiều dịch vụ: theo dõi RAM/swap khi truy vấn lớn hoặc nhiều người dùng. Giới hạn systemd bảo vệ các dịch vụ khác nhưng ứng dụng có thể bị khởi động lại nếu vượt RAM; cần nâng tài nguyên khi tải thực tế vượt mức đã kiểm thử.
+
+## Mật khẩu quản trị
+
+Chỉ tài khoản quản trị được đổi mật khẩu (nút "Đổi mật khẩu" trên thanh trên cùng); tài khoản xã do quản trị đặt lại trong tab "Tài khoản xã/phường". Mật khẩu quản trị đổi trên web được lưu băm trong `/var/lib/tool-csdl/config/admin-auth.json` và thay cho `APP_PASSWORD`. Quên mật khẩu: xóa file này rồi `systemctl restart tool-csdl` để quay về `APP_PASSWORD` trong `/etc/tool-csdl.env`.

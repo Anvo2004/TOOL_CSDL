@@ -57,7 +57,8 @@ function readSession(req) {
     return null;
   }
   if (!(s.exp > Date.now())) return null;
-  if (s.role !== 'xa') return { ...s, role: 'admin' };
+  // Quản trị đổi mật khẩu thì các phiên quản trị cũ hết hiệu lực.
+  if (s.role !== 'xa') return (s.ver || 0) === users.adminVer() ? { ...s, role: 'admin' } : null;
   // Tài khoản xã: kiểm tra lại mỗi lần để khóa / đổi mật khẩu / đổi xã có hiệu lực ngay.
   const u = users.sessionUser(s.u, s.ver);
   return u ? { ...s, xaId: u.xaId } : null;
@@ -80,7 +81,7 @@ async function handleLogin(req, res) {
   const f = failedLogins.get(ip);
   if (f && f.n >= 8 && f.until > Date.now()) return send(res, 429, { error: 'Sai quá nhiều lần, thử lại sau 15 phút' });
   const { username = '', password = '' } = await readJson(req);
-  const isAdmin = AUTH_ON && (crypto.timingSafeEqual(sha(username), sha(AUTH_USER)) & crypto.timingSafeEqual(sha(password), sha(AUTH_PASS)));
+  const isAdmin = AUTH_ON && !!(crypto.timingSafeEqual(sha(username), sha(AUTH_USER)) & users.verifyAdmin(password, AUTH_PASS));
   const u = isAdmin ? null : users.verify(username, password);
   if (!isAdmin && !u) {
     const n = f && f.until > Date.now() ? f.n + 1 : 1;
@@ -89,7 +90,7 @@ async function handleLogin(req, res) {
   }
   failedLogins.delete(ip);
   if (u) await users.touchLogin(u);
-  send(res, 200, { ok: true }, issueSession(req, isAdmin ? { u: AUTH_USER, role: 'admin' } : { u: u._id, role: 'xa', ver: u.ver || 0 }));
+  send(res, 200, { ok: true }, issueSession(req, isAdmin ? { u: AUTH_USER, role: 'admin', ver: users.adminVer() } : { u: u._id, role: 'xa', ver: u.ver || 0 }));
 }
 
 // ---------- Tiện ích HTTP ----------
@@ -279,10 +280,12 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && p === '/api/info') return await handleInfo(res, session);
     if (req.method === 'POST' && p === '/api/password') {
-      if (isAdmin(session)) throw forbidden('Mật khẩu quản trị đặt bằng biến môi trường APP_PASSWORD trên máy chủ');
+      // Chỉ quản trị được đổi mật khẩu; tài khoản xã nhờ quản trị đặt lại (tab Tài khoản xã/phường).
+      if (!isAdmin(session)) throw forbidden('Chỉ tài khoản quản trị được đổi mật khẩu. Liên hệ quản trị để đặt mật khẩu mới.');
+      if (!AUTH_ON) throw forbidden('Máy chủ chưa bật đăng nhập (APP_USERNAME / APP_PASSWORD)');
       const { current, next } = await readJson(req);
-      const u = await users.changePassword(session.u, current, next);
-      return send(res, 200, { ok: true }, issueSession(req, { u: u._id, role: 'xa', ver: u.ver }));
+      const ver = await users.changeAdminPassword(current, next, AUTH_PASS);
+      return send(res, 200, { ok: true }, issueSession(req, { u: AUTH_USER, role: 'admin', ver }));
     }
     if (req.method === 'GET' && p === '/api/catalog') return send(res, 200, CATEGORIES);
     if (req.method === 'GET' && p === '/api/config') return send(res, 200, await store.maskedConfig(ids));

@@ -311,7 +311,7 @@
       <div class="table-wrap" id="users-wrap"></div>
       <p class="hint">
         Đổi ô "Xã / phường" để chuyển quyền tài khoản sang xã khác. "Đặt mật khẩu": tự nhập mật khẩu mới hoặc để trống để web tự tạo
-        (chỉ hiện một lần, hãy sao chép gửi cho xã). Xã tự đổi mật khẩu bằng nút "Đổi mật khẩu" trên thanh trên cùng.
+        (chỉ hiện một lần, hãy sao chép gửi cho xã). Chỉ quản trị được đổi mật khẩu: tài khoản xã không tự đổi được; quản trị đổi mật khẩu của mình bằng nút "Đổi mật khẩu" trên thanh trên cùng.
         Khóa, đặt mật khẩu mới, chuyển xã hoặc xóa thì phiên đang đăng nhập của tài khoản đó bị thoát ngay.
       </p>
     </section>
@@ -320,7 +320,7 @@
   <!-- ============ ĐỔI MẬT KHẨU ============ -->
   <div class="modal hidden" id="pw-modal">
     <form class="modal-box narrow" id="pw-form">
-      <div class="modal-head"><h2>Đổi mật khẩu</h2><button class="icon-btn" type="button" id="pw-close" title="Đóng">✕</button></div>
+      <div class="modal-head"><h2>Đổi mật khẩu quản trị</h2><button class="icon-btn" type="button" id="pw-close" title="Đóng">✕</button></div>
       <label class="field">Mật khẩu hiện tại<input class="input" type="password" name="current" autocomplete="current-password" required></label>
       <label class="field">Mật khẩu mới (ít nhất 8 ký tự)<input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required></label>
       <label class="field">Nhập lại mật khẩu mới<input class="input" type="password" name="again" autocomplete="new-password" minlength="8" required></label>

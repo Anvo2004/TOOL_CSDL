@@ -140,7 +140,7 @@ function applyRole(info) {
   $('#btn-logout').title = `Đăng xuất (${info.user})`;
   $('#me').classList.remove('hidden');
   $('#me').textContent = xaRole ? `${info.xaName} · ${info.user}` : `Quản trị · ${info.user}`;
-  $('#btn-passwd').classList.toggle('hidden', !xaRole);
+  $('#btn-passwd').classList.toggle('hidden', xaRole || !info.auth); // chỉ quản trị được đổi mật khẩu
 }
 
 // ---------- Quy định kết nối LGSP ----------
@@ -1099,7 +1099,7 @@ async function userAction(btn) {
   renderUsers();
 }
 
-// ---------- Đổi mật khẩu (tài khoản xã) ----------
+// ---------- Đổi mật khẩu (chỉ tài khoản quản trị) ----------
 function openPasswd() {
   $('#pw-form').reset();
   $('#pw-error').textContent = '';

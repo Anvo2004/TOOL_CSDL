@@ -17,6 +17,7 @@ const QUOTA_FILE = path.join(DATA_DIR, 'quota.json');
 const RUNS_FILE = path.join(DATA_DIR, 'sync_runs.jsonl');
 const RATE_FILE = path.join(DATA_DIR, 'rate.json');
 const USERS_FILE = path.join(ROOT, 'config', 'users.json');
+const ADMIN_AUTH_FILE = path.join(ROOT, 'config', 'admin-auth.json');
 const EXPORT_DIR = path.join(ROOT, 'exports');
 
 const DEFAULT_SETTINGS = {
@@ -332,6 +333,20 @@ async function saveUser(u) {
   fs.writeFileSync(USERS_FILE, JSON.stringify(all, null, 2), 'utf8');
 }
 
+// Mật khẩu quản trị đã đổi trên web (băm scrypt). Xóa bản ghi này = quay về APP_PASSWORD.
+async function loadAdminAuth() {
+  if (useMongo) return db.collection('config').findOne({ _id: 'admin_auth' });
+  return readJsonFile(ADMIN_AUTH_FILE, null);
+}
+
+async function saveAdminAuth(a) {
+  if (useMongo) {
+    await db.collection('config').replaceOne({ _id: 'admin_auth' }, { ...a, _id: 'admin_auth' }, { upsert: true });
+    return;
+  }
+  fs.writeFileSync(ADMIN_AUTH_FILE, JSON.stringify(a, null, 2), { encoding: 'utf8', mode: 0o600 });
+}
+
 async function deleteUser(id) {
   if (useMongo) {
     await db.collection('users').deleteOne({ _id: id });
@@ -358,5 +373,5 @@ function exportFiles(result) {
 module.exports = {
   ROOT, EXPORT_DIR, KEEP_ROWS, init, storageName, loadConfig, saveConfig, maskedConfig, updateConfig, updateXa, setXaAuto, patchSettings,
   MAX_HOURLY, saveResult, loadResult, appendHistory, readHistory, latestStats, exportFiles,
-  incUsage, readUsage, loadQuotas, saveQuota, appendSyncRun, readSyncRuns, loadRates, saveRate, loadUsers, saveUser, deleteUser,
+  incUsage, readUsage, loadQuotas, saveQuota, appendSyncRun, readSyncRuns, loadRates, saveRate, loadUsers, saveUser, deleteUser, loadAdminAuth, saveAdminAuth,
 };

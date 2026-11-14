@@ -1,16 +1,19 @@
 // Tài khoản đăng nhập của từng xã: mỗi tài khoản gắn với đúng một xã, chỉ xem, truy vấn và thiết lập được
 // xã đó. Tài khoản quản trị là APP_USERNAME / APP_PASSWORD (biến môi trường), quản lý được mọi xã.
+// Chỉ quản trị được đổi mật khẩu: đổi mật khẩu của chính mình (lưu băm, thay APP_PASSWORD) và đặt mật khẩu cho xã.
 // Mật khẩu lưu dạng băm scrypt có salt; `ver` tăng mỗi khi đổi mật khẩu / khóa để phiên cũ hết hiệu lực.
 
 const crypto = require('crypto');
 const store = require('./store');
 
 const users = new Map(); // tên đăng nhập -> { _id, xaId, salt, hash, ver, disabled, ... }
+let adminAuth = null; // { salt, hash, ver, changedAt } khi quản trị đã đổi mật khẩu trên web
 const USERNAME_RE = /^[a-z0-9._-]{3,40}$/;
 const MIN_PASSWORD = 8;
 
 async function init() {
   for (const u of await store.loadUsers()) users.set(u._id, u);
+  adminAuth = await store.loadAdminAuth();
 }
 
 const hash = (password, salt) => crypto.scryptSync(String(password), salt, 32).toString('hex');
@@ -113,8 +116,31 @@ async function remove(username) {
   await store.deleteUser(u._id);
 }
 
+// ---------- Mật khẩu quản trị ----------
+const sha = (s) => crypto.createHash('sha256').update(String(s)).digest();
+const adminVer = () => (adminAuth && adminAuth.ver) || 0;
+
+// Đúng mật khẩu quản trị: mật khẩu đã đổi trên web, hoặc APP_PASSWORD nếu chưa đổi lần nào.
+function verifyAdmin(password, envPassword) {
+  if (adminAuth) return crypto.timingSafeEqual(Buffer.from(hash(password, adminAuth.salt), 'hex'), Buffer.from(adminAuth.hash, 'hex'));
+  return !!envPassword && crypto.timingSafeEqual(sha(password), sha(envPassword));
+}
+
+async function changeAdminPassword(current, next, envPassword) {
+  if (!verifyAdmin(current, envPassword)) throw bad('Mật khẩu hiện tại không đúng');
+  checkPassword(next);
+  const salt = crypto.randomBytes(16).toString('hex');
+  const a = { salt, hash: hash(next, salt), ver: adminVer() + 1, changedAt: new Date().toISOString() };
+  await store.saveAdminAuth(a);
+  adminAuth = a;
+  return a.ver;
+}
+
 async function touchLogin(u) {
   await save({ ...u, lastLoginAt: new Date().toISOString() });
 }
 
-module.exports = { init, list, get, verify, sessionUser, create, resetPassword, changePassword, update, remove, touchLogin };
+module.exports = {
+  init, list, get, verify, sessionUser, create, resetPassword, changePassword, update, remove, touchLogin,
+  verifyAdmin, adminVer, changeAdminPassword,
+};

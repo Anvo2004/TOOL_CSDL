@@ -129,16 +129,26 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal((await api('/api/users', 'GET', undefined, userCookie)).status, 403);
     assert.equal((await api('/api/query', 'POST', { xaId: 'other', itemKey: 'csdlpx.TonGiao' }, userCookie)).status, 403);
     assert.equal((await api('/api/result?xa=other&item=csdlpx.TonGiao', 'GET', undefined, userCookie)).status, 403);
-    const changed = await api('/api/password', 'POST', { current: 'fixture-password', next: 'fixture-next-pass' }, userCookie);
-    assert.equal(changed.status, 200);
-    assert.equal((await api('/api/info', 'GET', undefined, userCookie)).status, 401);
-    const nextCookie = changed.headers.get('set-cookie').split(';')[0];
+    // Tài khoản xã không tự đổi mật khẩu được.
+    assert.equal((await api('/api/password', 'POST', { current: 'fixture-password', next: 'fixture-next-pass' }, userCookie)).status, 403);
+    assert.equal((await api('/api/login', 'POST', { username: 'fixture-user', password: 'fixture-password' })).status, 200);
     await api('/api/users/fixture-user', 'PUT', { disabled: true });
-    assert.equal((await api('/api/info', 'GET', undefined, nextCookie)).status, 401);
+    assert.equal((await api('/api/info', 'GET', undefined, userCookie)).status, 401);
     await api('/api/users/fixture-user', 'PUT', { disabled: false, xaId: 'other' });
     assert.equal((await api('/api/users/fixture-user/password', 'POST', { password: 'fixture-reset-pass' })).status, 200);
     await api('/api/users/fixture-user', 'DELETE');
     assert.equal((await api('/api/users')).body.length, 0);
+  });
+  await t.test('admin changes own password; old admin sessions are logged out', async () => {
+    assert.equal((await api('/api/password', 'POST', { current: 'wrong-pass', next: 'fixture-admin-new' })).status, 400);
+    assert.equal((await api('/api/password', 'POST', { current: 'fixture-admin-pass', next: 'short' })).status, 400);
+    const changed = await api('/api/password', 'POST', { current: 'fixture-admin-pass', next: 'fixture-admin-new' });
+    assert.equal(changed.status, 200);
+    assert.equal((await api('/api/info')).status, 401);
+    cookie = changed.headers.get('set-cookie').split(';')[0];
+    assert.equal((await api('/api/info')).body.role, 'admin');
+    assert.equal((await api('/api/login', 'POST', { username: 'fixture-admin', password: 'fixture-admin-pass' })).status, 401);
+    assert.equal((await api('/api/login', 'POST', { username: 'fixture-admin', password: 'fixture-admin-new' })).status, 200);
   });
   await t.test('automatic sync settings, execution and hourly mode', async () => {
     const auto = { xaId: 'other', enabled: false, mode: 'times', times: ['08:00', '19:00'], items: ['csdlpx.TonGiao'], days: 7 };

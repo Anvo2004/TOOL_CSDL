@@ -11,7 +11,7 @@ User=tool-csdl
 Group=tool-csdl
 WorkingDirectory=/opt/tool-csdl/current/web
 EnvironmentFile=/etc/tool-csdl.env
-ExecStart=/usr/bin/node --max-old-space-size=192 server.js
+ExecStart=/opt/tool-csdl/node/bin/node --max-old-space-size=192 server.js
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30

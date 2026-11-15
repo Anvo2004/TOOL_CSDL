@@ -10,6 +10,7 @@ const { runItem } = require('./lgsp');
 const usage = require('./usage');
 const policy = require('./policy');
 const store = require('./store');
+const db = require('./db');
 const { pad, fmtVN, sleep } = require('./util');
 
 const VN_OFFSET = 7 * 3600000;
@@ -42,8 +43,15 @@ async function executeTask({ settings, xa, item, from, to, autoSave = false, sou
     const durationMs = Date.now() - started;
     const result = { ...base, ok: true, count: rows.length, durationMs, warnings, rows };
     await store.saveResult(result);
+    let changes = null;
+    try {
+      changes = db.ingest(result, item); // kho SQLite: thêm / cập nhật / đánh dấu mất
+    } catch (e) {
+      console.error(`Không ghi được vào kho dữ liệu (${xa.name} · ${item.name}):`, e.message);
+    }
     const files = autoSave && rows.length ? store.exportFiles(result) : [];
     entry = { ...base, ok: true, count: rows.length, durationMs, warnings, files };
+    if (changes) entry.changes = { added: changes.added, updated: changes.updated, removed: changes.removed };
   } catch (e) {
     entry = { ...base, ok: false, count: 0, durationMs: Date.now() - started, error: e.message, warnings: [], files: [] };
   }

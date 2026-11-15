@@ -15,6 +15,8 @@ const usage = require('./lib/usage');
 const policy = require('./lib/policy');
 const users = require('./lib/users');
 const sync = require('./lib/sync');
+const db = require('./lib/db');
+const backup = require('./lib/backup');
 const { flattenRow, columnsOf, toCsv, slug } = require('./lib/util');
 
 const PORT = Number(process.env.PORT) || 3000;
@@ -310,6 +312,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/download') return await handleDownload(url, res, session);
     if (req.method === 'GET' && p === '/api/history') return send(res, 200, await store.readHistory(Number(url.searchParams.get('limit')) || 500, ids));
     if (req.method === 'GET' && p === '/api/stats') return send(res, 200, await store.latestStats(ids));
+    if (req.method === 'GET' && p === '/api/data/summary') {
+      return send(res, 200, { store: isAdmin(session) ? db.stats() : { enabled: db.ready() }, items: db.summary(ids), syncs: db.recentSyncs(ids, 50) });
+    }
+    if (p === '/api/backups') {
+      if (!isAdmin(session)) throw forbidden('Chỉ quản trị xem được bản sao lưu');
+      if (req.method === 'POST') return send(res, 200, backup.runBackup());
+      return send(res, 200, backup.list());
+    }
     if (req.method === 'GET' && p === '/api/auto') return await handleAuto(url, res, session);
     if (req.method === 'PUT' && p === '/api/auto') {
       const body = await readJson(req);
@@ -343,10 +353,19 @@ server.requestTimeout = 0;
 
 store.init().then(async () => {
   await Promise.all([usage.init(), policy.init(), users.init()]);
+  if (db.init(store.ROOT)) {
+    const cfg = await store.loadConfig();
+    const n = await db.importLegacy(store.loadResult, cfg.xa.map((x) => x.id), [...ITEMS.values()]);
+    if (n != null) console.log(`Kho dữ liệu: đã nạp ${n} kết quả có sẵn`);
+  } else {
+    console.warn('Kho dữ liệu SQLite tắt:', db.stats().reason);
+  }
+  backup.setRoot(store.ROOT);
+  if (process.env.BACKUP_ENABLED !== 'false') backup.start(store.ROOT);
   if (process.env.SCHEDULER_ENABLED !== 'false') await sync.startScheduler();
   server.listen(PORT, HOST, () => {
     console.log(`Công cụ truy vấn LGSP đang chạy: http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`);
-    console.log(`Lưu trữ: ${store.storageName() === 'mongo' ? 'MongoDB' : `file (${store.EXPORT_DIR})`} · Đăng nhập: ${AUTH_ON ? 'bật' : 'tắt'}`);
+    console.log(`Lưu trữ: ${store.storageName() === 'mongo' ? 'MongoDB' : `file (${store.EXPORT_DIR})`} · Kho SQLite: ${db.ready() ? 'bật' : 'tắt'} · Đăng nhập: ${AUTH_ON ? 'bật' : 'tắt'}`);
   });
 }).catch((e) => {
   console.error('Không khởi động được:', e.message);

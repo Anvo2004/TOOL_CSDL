@@ -47,7 +47,7 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     settings: { token_url: `${upstream}/token`, ...Object.fromEntries(['qlvbdh','gopy','vpub','ttdh','csdlpx'].map(k => [`base_${k}`, `${upstream}/${k}`])), policy_windows: Object.fromEntries([...ITEMS.keys()].map(k => [k, 'any'])), job_timeout_sec: 10 },
     xa: ['fixture', 'other'].map(id => ({ id, name: id, key: id, secret: 'fixture-secret', organId: 'fixture', organKey: 'fixture-organ', gopy_user: 'fixture', gopy_pass: 'fixture-pass', vpub_IDDonVi: '1', csdlpx_username: 'fixture', csdlpx_password: 'fixture-pass' })),
   }));
-  app = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env: { ...process.env, MONGODB_URI: '', NODE_ENV: 'production', DATA_ROOT: root, PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: base, APP_USERNAME: 'fixture-admin', APP_PASSWORD: 'fixture-admin-pass', SESSION_SECRET: 'fixture-session', SCHEDULER_ENABLED: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
+  app = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env: { ...process.env, MONGODB_URI: '', NODE_ENV: 'production', DATA_ROOT: root, PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: base, APP_USERNAME: 'fixture-admin', APP_PASSWORD: 'fixture-admin-pass', SESSION_SECRET: 'fixture-session', SCHEDULER_ENABLED: 'false', CONFIG_KEY: 'fixture-config-key', BACKUP_ENABLED: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
   let logs = '';
   app.stdout.on('data', b => { logs += b; });
   app.stderr.on('data', b => { logs += b; });
@@ -84,7 +84,11 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     const cfg = (await api('/api/config')).body;
     assert.equal(cfg.xa[0].secret, '••••••');
     assert.equal((await api('/api/config', 'PUT', cfg)).status, 200);
-    assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'config/config.json'))).xa[0].secret, 'fixture-secret');
+    // CONFIG_KEY: khóa và mật khẩu kết nối được mã hóa trên đĩa, file chỉ chủ sở hữu đọc được.
+    const disk = fs.readFileSync(path.join(root, 'config/config.json'), 'utf8');
+    assert.match(JSON.parse(disk).xa[0].secret, /^enc:v1:/);
+    assert.doesNotMatch(disk, /fixture-secret|fixture-pass/);
+    if (process.platform !== 'win32') assert.equal(fs.statSync(path.join(root, 'config/config.json')).mode & 0o777, 0o600);
   });
   for (const key of ITEMS.keys()) await t.test(`query ${key}: token, callback/artifact or synchronous data`, async () => {
     const r = await api('/api/query', 'POST', { xaId: 'fixture', itemKey: key, from: '2026-11-01', to: '2026-11-07', autoSave: true });
@@ -105,6 +109,17 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal((await api('/api/history')).body.length, ITEMS.size);
     assert.equal((await api('/api/stats')).body.length, ITEMS.size);
     assert.ok((await api('/api/usage')).body.totals.today.calls > 0);
+  });
+  await t.test('SQLite store: normalized records, sync stats, backups', async () => {
+    const d = (await api('/api/data/summary')).body;
+    assert.equal(d.store.enabled, true);
+    const mine = d.items.filter(x => x.xa_id === 'fixture');
+    assert.equal(mine.length, ITEMS.size);
+    assert.ok(mine.every(x => x.active === 1 && x.sector));
+    assert.equal(d.syncs.length, Math.min(50, ITEMS.size));
+    const b = (await api('/api/backups', 'POST')).body;
+    assert.ok(b.files && b.files.includes('csdl.sqlite') && b.files.includes('config.json'), JSON.stringify(b));
+    assert.equal((await api('/api/backups')).body.length, 1);
   });
   await t.test('QLVBDH reuses jobId until it expires', async () => {
     const q = () => api('/api/query', 'POST', { xaId: 'fixture', itemKey: 'qlvbdh.vbden', from: '2026-11-01', to: '2026-11-07', autoSave: false });
@@ -129,6 +144,10 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal((await api('/api/users', 'GET', undefined, userCookie)).status, 403);
     assert.equal((await api('/api/query', 'POST', { xaId: 'other', itemKey: 'csdlpx.TonGiao' }, userCookie)).status, 403);
     assert.equal((await api('/api/result?xa=other&item=csdlpx.TonGiao', 'GET', undefined, userCookie)).status, 403);
+    assert.equal((await api('/api/backups', 'GET', undefined, userCookie)).status, 403);
+    const own = (await api('/api/data/summary', 'GET', undefined, userCookie)).body;
+    assert.equal(own.store.file, undefined);
+    assert.ok(own.items.every(x => x.xa_id === own.items[0].xa_id));
     // Tài khoản xã không tự đổi mật khẩu được.
     assert.equal((await api('/api/password', 'POST', { current: 'fixture-password', next: 'fixture-next-pass' }, userCookie)).status, 403);
     assert.equal((await api('/api/login', 'POST', { username: 'fixture-user', password: 'fixture-password' })).status, 200);
@@ -192,10 +211,11 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
   });
   await t.test('state persists across restart in DATA_ROOT', async () => {
     app.kill(); await once(app, 'exit');
-    app = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env: { ...process.env, MONGODB_URI: '', DATA_ROOT: root, PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: base, APP_USERNAME: 'fixture-admin', APP_PASSWORD: 'fixture-admin-pass', SESSION_SECRET: 'fixture-session', SCHEDULER_ENABLED: 'false' }, stdio: 'ignore' });
+    app = spawn(process.execPath, ['server.js'], { cwd: path.join(__dirname, '..'), env: { ...process.env, MONGODB_URI: '', DATA_ROOT: root, PORT: String(port), HOST: '127.0.0.1', PUBLIC_URL: base, APP_USERNAME: 'fixture-admin', APP_PASSWORD: 'fixture-admin-pass', SESSION_SECRET: 'fixture-session', SCHEDULER_ENABLED: 'false', CONFIG_KEY: 'fixture-config-key', BACKUP_ENABLED: 'false' }, stdio: 'ignore' });
     for (let n = 0; n < 100; n++) { try { if ((await api('/healthz')).status === 200) break; } catch {} await new Promise(r => setTimeout(r, 50)); }
     assert.equal((await api('/api/stats')).body.length, ITEMS.size + 1);
     assert.equal((await api('/api/result?xa=fixture&item=csdlpx.TonGiao')).body.count, 1);
+    assert.equal((await api('/api/data/summary')).body.items.filter(x => x.xa_id === 'fixture').length, ITEMS.size);
     assert.ok((await api('/api/info')).body.policy.hourly.find(x => x.xaId === 'fixture').used > 0);
   });
 });

@@ -8,6 +8,9 @@
 - `/opt/tool-csdl/current`: symlink đến bản đang chạy.
 - `/etc/tool-csdl.env`: biến môi trường, quyền `0600`, do root quản lý; tham khảo `environment.example`.
 - `/var/lib/tool-csdl/{config,data,exports}`: dữ liệu bền vững khi dùng file. `DATA_ROOT` tách dữ liệu khỏi mã nguồn để cập nhật không xóa kết quả.
+- `/var/lib/tool-csdl/data/csdl.sqlite`: kho dữ liệu đã chuẩn hóa (tra cứu, dashboard). Lần đầu khởi động tự nạp các kết quả có sẵn trong `data/results`.
+- `/var/lib/tool-csdl/backups/<ngày>/`: sao lưu tự động lúc 02:30 (kho SQLite + `config/*.json`), giữ `BACKUP_KEEP_DAYS` ngày.
+- `/opt/tool-csdl/node`: Node.js 24 LTS riêng của ứng dụng (cần `node:sqlite`), không đụng tới Node hệ thống mà dịch vụ khác đang dùng.
 - `/etc/systemd/system/tool-csdl.service`: tự khởi động cùng VPS, tự khởi động lại khi lỗi; heap Node 192 MiB, giới hạn RAM tiến trình 320 MiB.
 - `/etc/nginx/sites-available/tool-csdl`: reverse proxy; `nginx-http.conf` chỉ dùng cho bước cấp chứng chỉ ban đầu. Không chép đè file này sau khi Certbot đã thêm TLS.
 
@@ -21,7 +24,7 @@
 
 ## Cài đặt trên VPS
 
-Yêu cầu Node.js 20 hoặc mới hơn, Nginx và Certbot. Tạo tài khoản hệ thống `tool-csdl`, thư mục dữ liệu có chủ sở hữu tương ứng, và file môi trường theo mẫu. Cả `APP_USERNAME` và `APP_PASSWORD` đều bắt buộc khi chạy production, kể cả lắng nghe loopback phía sau Nginx.
+Yêu cầu Node.js 22.13 trở lên (khuyên dùng 24 LTS, cài riêng vào `/opt/tool-csdl/node`), Nginx và Certbot. Node cũ hơn vẫn chạy nhưng tắt kho SQLite. Tạo tài khoản hệ thống `tool-csdl`, thư mục dữ liệu có chủ sở hữu tương ứng, và file môi trường theo mẫu. Cả `APP_USERNAME` và `APP_PASSWORD` đều bắt buộc khi chạy production, kể cả lắng nghe loopback phía sau Nginx.
 
 ```sh
 cd /opt/tool-csdl/releases/<release>/web
@@ -51,6 +54,11 @@ systemctl status certbot.timer --no-pager
 Trước mỗi cập nhật, sao lưu `/var/lib/tool-csdl` và `/etc/tool-csdl.env` vào thư mục root có quyền `0700`. Với MongoDB phải dùng bản sao lưu database tương ứng. Giữ bản release trước; trỏ lại symlink `current` và restart dịch vụ để rollback mã nguồn. Không ghi đè dữ liệu bằng backup cũ trừ khi đã xác định cần phục hồi dữ liệu.
 
 VPS 2 GB đang chạy nhiều dịch vụ: theo dõi RAM/swap khi truy vấn lớn hoặc nhiều người dùng. Giới hạn systemd bảo vệ các dịch vụ khác nhưng ứng dụng có thể bị khởi động lại nếu vượt RAM; cần nâng tài nguyên khi tải thực tế vượt mức đã kiểm thử.
+
+## Mã hóa cấu hình và sao lưu
+
+- Đặt `CONFIG_KEY` (chuỗi ngẫu nhiên dài) trong `/etc/tool-csdl.env`. Lần khởi động đầu, khóa và mật khẩu LGSP trong `config.json` được mã hóa (`enc:v1:...`), file chuyển về quyền `0600`. Ghi `CONFIG_KEY` vào nơi an toàn: mất khóa thì phải nhập lại khóa các xã; sai khóa thì ứng dụng báo lỗi, không khởi động.
+- Sao lưu ngay: quản trị gọi `POST /api/backups` (hoặc đợi 02:30). Phục hồi: dừng dịch vụ, chép `csdl.sqlite` về `data/` và các `*.json` về `config/`, khởi động lại. Bản sao lưu chứa cấu hình đã mã hóa nên cần đúng `CONFIG_KEY` lúc sao lưu.
 
 ## Mật khẩu quản trị
 

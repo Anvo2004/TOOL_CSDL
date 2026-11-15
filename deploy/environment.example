@@ -7,6 +7,10 @@ TZ=Asia/Ho_Chi_Minh
 APP_USERNAME=admin
 APP_PASSWORD=REPLACE_WITH_RANDOM_PASSWORD
 SESSION_SECRET=REPLACE_WITH_RANDOM_SECRET
+# Mã hóa khóa/mật khẩu LGSP trong config.json (AES-256-GCM). Mất khóa này = phải nhập lại khóa các xã.
+CONFIG_KEY=REPLACE_WITH_RANDOM_SECRET
+# Sao lưu hằng ngày 02:30 vào DATA_ROOT/backups, giữ N ngày.
+BACKUP_KEEP_DAYS=14
 # Keep false until the Render scheduler is stopped to avoid duplicate LGSP calls.
 SCHEDULER_ENABLED=false
 # Retain the existing production database if migrating from MongoDB on Render.

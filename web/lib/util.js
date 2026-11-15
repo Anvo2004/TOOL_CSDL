@@ -35,9 +35,17 @@ function maybeParse(v) {
   try { return JSON.parse(t); } catch { return v; }
 }
 
-const LIST_KEYS = /^(data|items|item|result|results|list|rows|records|content|danhsach|value|ds)$/i;
+const LIST_KEYS = /^(data|items|item|result|results|list|rows|records|content|danhsach|value|ds|ketqua|dataset)$/i;
 const TOTAL_KEYS = /^(total|totalrecord|totalrecords|totalcount|totalrow|totalrows|totalitems|totalitem|totalelements|tongso|recordstotal|count)$/i;
 const ERROR_KEYS = /(message|error|msg|status|code|success|description)/i;
+
+// Object chỉ là vỏ phân trang của API (không phải bản ghi): có các khóa trang/tổng số và danh sách rỗng.
+const ENVELOPE_KEYS = /^(page|per_page|limit|totalrecord|totalpages|ketqua|success|numrecs|numpages|dataset|state)$/i;
+function isEnvelope(o) {
+  if (!o || typeof o !== 'object' || Array.isArray(o)) return false;
+  const keys = Object.keys(o);
+  return keys.filter((k) => ENVELOPE_KEYS.test(k)).length >= 3 && ('ketqua' in o || 'totalrecord' in o || 'numrecs' in o);
+}
 
 // Tìm danh sách bản ghi trong phản hồi có cấu trúc chưa biết trước.
 // Ưu tiên mảng object dài nhất; nếu không có thì mảng nằm dưới khóa quen thuộc (data, items...).
@@ -71,6 +79,12 @@ function extractRows(payload) {
 
   const list = best || named;
   if (list) return { rows: list.map(normalizeRow), total, warning: null };
+  // Vỏ phân trang không có danh sách (ketqua rỗng/null, totalrecord = 0): không có bản ghi nào.
+  if (isEnvelope(root)) {
+    const one = maybeParse(root.ketqua);
+    if (one && typeof one === 'object' && !Array.isArray(one)) return { rows: [normalizeRow(one)], total, warning: null };
+    return { rows: [], total, warning: 'Phản hồi rỗng' };
+  }
 
   const keys = Object.keys(root);
   if (keys.length <= 6 && keys.some((k) => ERROR_KEYS.test(k))) {
@@ -144,5 +158,5 @@ const fmtVN = (t) => new Date(t).toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Ch
 
 module.exports = {
   pad, parseIso, ddmmyyyy, mmddyyyy, isoDate, splitRange,
-  maybeParse, extractRows, flattenRow, columnsOf, toCsv, slug, findKey, sleep, fmtVN,
+  maybeParse, extractRows, isEnvelope, flattenRow, columnsOf, toCsv, slug, findKey, sleep, fmtVN,
 };

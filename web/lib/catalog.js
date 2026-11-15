@@ -36,6 +36,29 @@ const CSDLPX_ITEMS = [
   ['DangKyTuoi17', 'Đăng ký tuổi 17'],
 ];
 
+// Ngành (dashboard chuyên ngành, phân quyền cán bộ theo ngành).
+const SECTORS = [
+  { id: 'vanphong', name: 'Văn phòng – Điều hành' },
+  { id: 'laodongxh', name: 'Lao động – Xã hội' },
+  { id: 'doanthe', name: 'Đoàn thể – Tổ dân phố' },
+  { id: 'vanhoagd', name: 'Văn hóa – Giáo dục' },
+  { id: 'kinhte', name: 'Kinh tế – Nông nghiệp' },
+  { id: 'yte', name: 'Y tế' },
+  { id: 'trattu', name: 'Trật tự – Dân cư' },
+  { id: 'quansu', name: 'Quân sự địa phương' },
+];
+const CSDLPX_SECTOR = {
+  TonGiao: 'vanhoagd', Karaoke: 'vanhoagd', Massage: 'vanhoagd', ThietCheVanHoa: 'vanhoagd', CauLacBo: 'vanhoagd',
+  VanHoaTruyenThong: 'vanhoagd', NhomTre: 'vanhoagd',
+  CoSoLuuTru: 'kinhte', HoSoOCop: 'kinhte', TiemChungDongVat: 'kinhte', ThueDat: 'kinhte', VayVon: 'laodongxh',
+  CoSoKhamChuaBenh: 'yte', CoSoKinhDoanhDuoc: 'yte', CoSoThamMyLamDep: 'yte', AnToanThucPham: 'yte',
+  BTXH: 'laodongxh', DanhSachLaoDong: 'laodongxh', NguoiCoCong: 'laodongxh',
+  DoanHoiVien: 'doanthe', DieuHanhToDanPho: 'doanthe',
+  CuocHopHoiNghi: 'vanphong',
+  NhanHoKhau: 'trattu', BienSoNha: 'trattu', DanhSachViaHe: 'trattu', PCCC: 'trattu', ViPhamHanhChinh: 'trattu',
+  NVQS: 'quansu', QNDuBi: 'quansu', DQTV: 'quansu', DangKyTuoi17: 'quansu',
+};
+
 const CATEGORIES = [
   {
     id: 'qlvbdh',
@@ -75,13 +98,16 @@ const CATEGORIES = [
     id: 'csdlpx',
     name: 'CSDL Phường xã',
     short: 'CSDL PX',
-    items: CSDLPX_ITEMS.map(([path, name]) => ({ id: path, name, kind: 'csdlpx', path: '/' + path, dated: false, paged: false })),
+    items: CSDLPX_ITEMS.map(([path, name]) => ({ id: path, name, kind: 'csdlpx', path: '/' + path, dated: false, paged: false, sector: CSDLPX_SECTOR[path] })),
   },
 ];
 
 const ITEMS = new Map();
 for (const cat of CATEGORIES) {
-  for (const item of cat.items) ITEMS.set(`${cat.id}.${item.id}`, { ...item, key: `${cat.id}.${item.id}`, category: cat });
+  for (const item of cat.items) {
+    item.sector = item.sector || 'vanphong'; // văn bản, lịch, góp ý, việc VPUB, Cổng TTĐT
+    ITEMS.set(`${cat.id}.${item.id}`, { ...item, key: `${cat.id}.${item.id}`, category: cat });
+  }
 }
 
-module.exports = { CATEGORIES, ITEMS };
+module.exports = { CATEGORIES, ITEMS, SECTORS };

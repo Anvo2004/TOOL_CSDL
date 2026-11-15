@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { toCsv, slug, pad } = require('./util');
+const secret = require('./secret');
 
 // VPS keeps writable state outside versioned releases; tests use an isolated directory.
 const ROOT = process.env.DATA_ROOT ? path.resolve(process.env.DATA_ROOT) : path.join(__dirname, '..');
@@ -44,6 +45,8 @@ const WINDOW_VALUES = ['day', 'night', 'any'];
 const XA_FIELDS = ['key', 'secret', 'organId', 'organKey', 'lct_username', 'gopy_user', 'gopy_pass', 'vpub_IDNhanVienRequest', 'vpub_IDDonVi', 'csdlpx_username', 'csdlpx_password'];
 
 const SECRET_FIELDS = ['secret', 'organKey', 'gopy_pass', 'csdlpx_password'];
+// Lưu mã hóa khi có CONFIG_KEY (lib/secret.js).
+const ENCRYPTED_FIELDS = ['key', ...SECRET_FIELDS];
 const MASK = '••••••';
 const CHUNK_CHARS = 4_000_000; // MongoDB giới hạn 16MB/document nên chia dữ liệu thành nhiều phần
 // Mỗi xã chỉ giữ các dòng lịch sử / lượt đồng bộ mới nhất. Số lượt gọi được đếm riêng (usage) nên không mất khi xóa.
@@ -55,6 +58,7 @@ let db = null;
 async function init() {
   if (!useMongo) {
     for (const d of [path.dirname(CONFIG_FILE), RESULTS_DIR, EXPORT_DIR]) fs.mkdirSync(d, { recursive: true });
+    await encryptExisting();
     return;
   }
   const { MongoClient } = require('mongodb');
@@ -69,6 +73,18 @@ async function init() {
     db.collection('sync_runs').createIndex({ startedAt: -1 }),
     db.collection('sync_runs').createIndex({ xaId: 1, startedAt: -1 }),
   ]);
+  await encryptExisting();
+}
+
+// Vừa đặt CONFIG_KEY mà cấu hình còn khóa dạng thường: mã hóa lại một lần.
+async function encryptExisting() {
+  if (!secret.enabled()) return;
+  const raw = await readRawConfig();
+  const plain = (raw.xa || []).some((x) => ENCRYPTED_FIELDS.some((f) => x[f] && !secret.isEncrypted(x[f])));
+  if (plain) {
+    await saveConfig(await loadConfig());
+    console.log('Đã mã hóa khóa và mật khẩu kết nối trong cấu hình');
+  }
 }
 
 const storageName = () => (useMongo ? 'mongo' : 'file');
@@ -87,14 +103,25 @@ async function loadConfig() {
     if (Number(settings.policy_hourly_limit) === 45) settings.policy_hourly_limit = DEFAULT_SETTINGS.policy_hourly_limit;
     settings.policy_limit_v2 = true;
   }
-  return { settings, xa: raw.xa || [] };
+  const xa = (raw.xa || []).map((x) => {
+    const y = { ...x };
+    for (const f of ENCRYPTED_FIELDS) if (y[f]) y[f] = secret.decrypt(y[f]);
+    return y;
+  });
+  return { settings, xa };
 }
 
 async function saveConfig(cfg) {
+  const xa = cfg.xa.map((x) => {
+    const y = { ...x };
+    for (const f of ENCRYPTED_FIELDS) if (y[f]) y[f] = secret.encrypt(y[f]);
+    return y;
+  });
   if (useMongo) {
-    await db.collection('config').replaceOne({ _id: 'main' }, { settings: cfg.settings, xa: cfg.xa }, { upsert: true });
+    await db.collection('config').replaceOne({ _id: 'main' }, { settings: cfg.settings, xa }, { upsert: true });
   } else {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(cfg, null, 2), 'utf8');
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ settings: cfg.settings, xa }, null, 2), { encoding: 'utf8', mode: 0o600 });
+    fs.chmodSync(CONFIG_FILE, 0o600); // file cũ có thể đang mở quyền cho mọi người
   }
 }
 

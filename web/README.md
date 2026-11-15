@@ -4,7 +4,7 @@ Web chạy trên máy cá nhân để truy vấn dữ liệu từ LGSP cho nhi�
 
 ## Chạy
 
-Cần Node.js 18 trở lên, không phải cài thêm thư viện nào.
+Cần Node.js 22.13 trở lên (khuyên dùng 24 LTS) để bật kho dữ liệu SQLite có sẵn trong Node (`node:sqlite`); Node cũ hơn vẫn chạy nhưng không có kho. Không phải cài thêm thư viện nào.
 
 ```
 cd web
@@ -40,7 +40,7 @@ Web luôn áp dụng ở phía máy chủ (tài khoản xã không tắt đượ
 ## Tài khoản
 
 - **Quản trị**: `APP_USERNAME` / `APP_PASSWORD` (biến môi trường). Thấy mọi xã, sửa cấu hình chung, quy định kết nối, thêm/xóa xã, tạo tài khoản xã.
-- **Tài khoản xã**: quản trị tạo ở tab **Tài khoản xã/phường** (tự đặt tên đăng nhập, mật khẩu và chọn xã được cấp quyền; đổi ô xã để chuyển quyền) (để trống mật khẩu thì web tự tạo, chỉ hiện một lần). Mỗi tài khoản gắn với một xã, chỉ thấy xã đó: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối của xã, xem lịch sử và lượt gọi. Xã tự đổi mật khẩu bằng nút **Đổi mật khẩu**.
+- **Tài khoản xã**: quản trị tạo ở tab **Tài khoản xã/phường** (tự đặt tên đăng nhập, mật khẩu và chọn xã được cấp quyền; đổi ô xã để chuyển quyền) (để trống mật khẩu thì web tự tạo, chỉ hiện một lần). Mỗi tài khoản gắn với một xã, chỉ thấy xã đó: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối của xã, xem lịch sử và lượt gọi. Chỉ quản trị được đổi mật khẩu: quản trị đổi mật khẩu của mình bằng nút **Đổi mật khẩu**, đặt lại mật khẩu xã trong tab **Tài khoản xã/phường**.
 - Mật khẩu lưu dạng băm scrypt. Khóa, đặt lại mật khẩu hoặc xóa tài khoản thì phiên đang đăng nhập bị thoát ngay. Sai mật khẩu 8 lần thì khóa đăng nhập 15 phút theo địa chỉ IP.
 
 ## Tự động & hạn mức
@@ -48,9 +48,19 @@ Web luôn áp dụng ở phía máy chủ (tài khoản xã không tắt đượ
 Tab **Tự động & hạn mức**:
 
 - **Đồng bộ tự động riêng từng xã**: mỗi xã tự bật/tắt, đặt các mốc giờ trong ngày (giờ Việt Nam, ví dụ `08:00, 14:00, 19:00, 23:00`), số ngày dữ liệu cần lấy và các mục. Đến mốc nào thì chỉ chạy các mục được phép trong khung giờ đó, lần lượt từng mục; khi xã đã dùng đủ lượt trong 60 phút thì chờ có lượt trống rồi chạy tiếp (không quá lúc khung giờ của mục đóng lại). Web cảnh báo mục nào không có mốc giờ nằm trong khung được phép của nó. Quản trị xem được bảng lịch của mọi xã. Máy chủ phải đang chạy thì lịch mới chạy (Render gói Starter luôn chạy; gói Free bị ngủ).
-- **Chạy liên tục mỗi giờ** (nút **⚡ Chạy liên tục mỗi giờ**, hoặc chọn ở ô *Cách chạy*): đầu mỗi giờ, máy chủ chạy lặp vòng tròn các mục được phép trong khung giờ đó, rải đều trong giờ cho đến khi dùng hết số lượt/giờ (mặc định 45), suốt 24 giờ. Mục bị lỗi (chưa đăng ký API, sai tài khoản) hoặc hết hạn mức ngày của LGSP thì tạm bỏ qua, giờ sau thử lại. Lịch sử chỉ ghi lần chạy đầu của mỗi mục trong giờ; tab Tự động & hạn mức ghi mỗi giờ một dòng có số lần chạy và số lượt gọi. Truy vấn tay dùng chung số lượt/giờ nên khi cần truy vấn tay hãy tạm tắt. Tắt lịch hoặc đổi cách chạy thì vòng đang chạy dừng ngay.
+- **Chạy liên tục mỗi giờ** (nút **⚡ Chạy liên tục mỗi giờ**, hoặc chọn ở ô *Cách chạy*): đầu mỗi giờ, máy chủ chạy lặp vòng tròn các mục được phép trong khung giờ đó, rải đều trong giờ cho đến khi dùng hết số lượt/giờ (mặc định 50), suốt 24 giờ. Mục bị lỗi (chưa đăng ký API, sai tài khoản) hoặc hết hạn mức ngày của LGSP thì tạm bỏ qua, giờ sau thử lại. Lịch sử chỉ ghi lần chạy đầu của mỗi mục trong giờ; tab Tự động & hạn mức ghi mỗi giờ một dòng có số lần chạy và số lượt gọi. Truy vấn tay dùng chung số lượt/giờ nên khi cần truy vấn tay hãy tạm tắt. Tắt lịch hoặc đổi cách chạy thì vòng đang chạy dừng ngay.
 - **Đếm lượt gọi**: mọi lượt gọi API LGSP được đếm theo ngày, xã và hệ thống: thành công, lỗi, bị chặn (429). Có tổng hôm nay / 7 ngày / 30 ngày, số lượt trong 60 phút qua, bảng theo ngày, theo xã, xuất Excel. Tài khoản xã chỉ thấy số của xã mình.
 - **Hạn mức ngày**: LGSP đặt lại hạn mức ngày lúc 7:00 sáng (00:00 UTC), tính riêng cho từng API của mỗi khóa. Lần đầu bị 429, số lượt đã gọi trước đó được ghi làm hạn mức dò được; khi đang bị chặn, web không gửi yêu cầu nào cho đến giờ LGSP mở lại.
+
+## Kho dữ liệu
+
+Mỗi lần truy vấn thành công (tay hoặc tự động), bản ghi được đưa vào kho SQLite `data/csdl.sqlite`:
+
+- Mỗi bản ghi có khóa nghiệp vụ (`id`, `doituong_id`...), **ngành** (`lib/catalog.js`: Văn phòng – Điều hành, Lao động – Xã hội, Đoàn thể, Văn hóa – Giáo dục, Kinh tế – Nông nghiệp, Y tế, Trật tự – Dân cư, Quân sự), tiêu đề, ngày chính, chuỗi tìm kiếm không dấu và bản gốc JSON.
+- So với lần trước: bản ghi **mới**, **thay đổi**, **không còn** (chỉ với mục lấy toàn bộ danh sách; phản hồi rỗng hoặc hụt quá nửa thì không đánh dấu mất, vì thường là lỗi tạm của API). Lịch sử thay đổi giữ 400 ngày.
+- Vỏ phân trang của API (`ketqua` rỗng, `totalrecord = 0`) không còn bị đếm thành 1 bản ghi.
+- Lần đầu chạy, kho tự nạp các kết quả đã lưu trước đó. `GET /api/data/summary`: số bản ghi từng (xã, mục) và các lần đồng bộ gần nhất.
+- Sao lưu tự động 02:30 hằng ngày vào `backups/<ngày>/` (kho + `config/*.json`), giữ 14 ngày. Khóa và mật khẩu LGSP trong `config.json` được mã hóa AES-256-GCM khi đặt biến môi trường `CONFIG_KEY`.
 
 ## Cấu hình
 
@@ -75,6 +85,9 @@ lib/users.js       tài khoản đăng nhập của các xã
 lib/usage.js       đếm lượt gọi API, dò hạn mức ngày, chặn khi bị LGSP khóa
 lib/sync.js        chạy tác vụ, lịch đồng bộ tự động riêng từng xã
 lib/store.js       cấu hình, kết quả, lịch sử, lượt gọi, xuất file
+lib/db.js          kho SQLite: bản ghi chuẩn hóa, thay đổi, số liệu đồng bộ
+lib/secret.js      mã hóa khóa / mật khẩu trong cấu hình (CONFIG_KEY)
+lib/backup.js      sao lưu hằng ngày
 lib/util.js        ngày tháng, bóc tách bản ghi, CSV
 public/            giao diện web
 ```

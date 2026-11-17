@@ -402,3 +402,10 @@ label.field { display: flex; flex-direction: column; gap: 4px; font-size: 13px; 
   .hour-row { grid-template-columns: 1fr; gap: 2px; }
   .span2 { grid-column: auto; }
 }
+
+/* Tiến độ lấy dữ liệu cũ */
+.bf { margin-top: 10px; display: flex; flex-direction: column; gap: 6px; }
+.bf:empty { display: none; }
+.bf-head { display: flex; align-items: center; gap: 6px; font-weight: 600; color: var(--primary-ink); font-size: 13px; }
+.bf-row { display: grid; grid-template-columns: minmax(110px, max-content) minmax(80px, 1fr) auto; gap: 10px; align-items: center; font-size: 13px; }
+.bf-row .meter { margin-top: 0; }

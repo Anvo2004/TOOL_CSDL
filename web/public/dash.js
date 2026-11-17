@@ -83,6 +83,14 @@ window.onReady = async () => {
   // Đợi font tải xong để biểu đồ đo đúng độ rộng chữ trên trục.
   await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1500))]).catch(() => {});
   if (S.me.role !== 'xa') ['#d-xa', '#s-xa', '#r-xa'].forEach((s) => fillXaSelect(s));
+  // Tài khoản xã: giao diện mang tên xã, mọi số liệu chỉ của xã đó.
+  if (S.me.role === 'xa' && S.me.xaName) {
+    $('.brand h1').textContent = S.me.xaName;
+    $('.brand p').textContent = 'Cổng dữ liệu LGSP · Đà Nẵng';
+    document.title = `${S.me.xaName} · Dữ liệu LGSP`;
+    $('#tab-dash .page-title').textContent = `Tổng quan dữ liệu ${S.me.xaName}`;
+    $('#tab-sector .page-title').textContent = `Dashboard chuyên ngành · ${S.me.xaName}`;
+  }
   $('#d-xa').addEventListener('change', () => loadDash().catch((e) => toast(e.message)));
   $('#d-refresh').onclick = () => loadDash().catch((e) => toast(e.message));
   $('#s-xa').addEventListener('change', () => loadSector().catch((e) => toast(e.message)));

@@ -235,6 +235,13 @@ function summary(xaIds = null) {
   `).all(...(xaIds || []));
 }
 
+// Lần lấy thành công gần nhất của từng mục của một xã (ms) — để biết mục nào đến hạn làm mới.
+function lastSyncs(xaId) {
+  if (!db) return new Map();
+  return new Map(db.prepare("SELECT item_key, MAX(at) AS at FROM syncs WHERE xa_id = ? AND source <> 'import' GROUP BY item_key").all(xaId)
+    .map((r) => [r.item_key, Date.parse(r.at)]));
+}
+
 function recentSyncs(xaIds = null, limit = 100) {
   if (!db) return [];
   return db.prepare(`SELECT * FROM syncs WHERE 1 = 1${inList('xa_id', xaIds)} ORDER BY id DESC LIMIT ?`).all(...(xaIds || []), limit);
@@ -406,5 +413,5 @@ function stats() {
 
 module.exports = {
   available, ready, init, close, ingest, importLegacy, pruneChanges, summary, recentSyncs, backupTo, stats,
-  getMeta, setMeta, normDate, fold, normalize, overview, breakdown, sectorDash, search, maskRow,
+  getMeta, setMeta, normDate, fold, normalize, overview, breakdown, sectorDash, search, maskRow, lastSyncs,
 };

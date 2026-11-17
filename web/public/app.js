@@ -767,6 +767,8 @@ function fillAutoForm() {
   $('#a-times').value = a.times.join(', ');
   syncModeUi();
   $('#a-days').value = a.days;
+  $('#a-bf-from').value = a.backfillFrom || '';
+  $('#a-refresh').value = a.refreshHours || 6;
   const items = new Set(a.items);
   $('#a-items').innerHTML = [...S.items.values()].map((it) =>
     `<label class="check"><input type="checkbox" value="${esc(it.key)}" ${items.has(it.key) ? 'checked' : ''}> ${esc(it.cat.short)} – ${esc(it.name)} ${winTag(it.key)}</label>`).join('');
@@ -801,6 +803,10 @@ function renderAutoStatus() {
   $('#a-warn').textContent = names.length
     ? `Không có mốc giờ nào nằm trong khung được phép của: ${names.join(', ')}. Hãy thêm mốc giờ phù hợp (xem nhãn giờ cạnh từng mục).` : '';
   $('#auto-run').disabled = sel.running;
+  const bf = sel.backfill || [];
+  $('#a-backfill').innerHTML = bf.length ? `<div class="bf-head">${ic('history')} Lấy dữ liệu cũ từ ${viDate(sel.auto.backfillFrom)}</div>${bf.map((b) => `
+    <div class="bf-row"><span>${esc(b.itemName)}</span><div class="meter"><span style="width:${b.pct}%"></span></div>
+    <span class="hint" style="margin:0">${b.done ? 'Đã xong' : `đã lấy đến ${viDate(b.cursor)} · ${b.pct}%`}</span></div>`).join('')}` : '';
   $('#a-policy').innerHTML = `${policyHtml()}<p class="hint">${hourly ? `Liên tục mỗi giờ: mỗi giờ chạy lặp vòng tròn các mục được phép trong khung giờ đó, rải đều trong giờ cho đến khi dùng hết ${limit} lượt.
     Mục bị lỗi hoặc bị LGSP chặn hạn mức ngày thì tạm bỏ qua, giờ sau thử lại. Truy vấn tay cũng dùng chung số lượt này, nên khi cần truy vấn tay hãy tạm tắt.` : ''}
     Mỗi mốc giờ chỉ chạy các mục được phép trong khung giờ đó, lần lượt từng mục.
@@ -829,6 +835,8 @@ function readAutoForm() {
     mode: $('#a-mode').value,
     times: $('#a-times').value,
     days: Number($('#a-days').value),
+    backfillFrom: $('#a-bf-from').value,
+    refreshHours: Number($('#a-refresh').value),
     items: $$('#a-items input:checked').map((el) => el.value),
   };
 }

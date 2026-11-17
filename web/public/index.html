@@ -306,8 +306,11 @@
           </select></label>
           <label class="span2" id="a-times-wrap">Các mốc giờ chạy (giờ Việt Nam, cách nhau dấu phẩy)<input class="input" id="a-times" placeholder="08:00, 14:00, 19:00, 23:00"></label>
           <label>Lấy dữ liệu bao nhiêu ngày gần nhất<input class="input" type="number" id="a-days" min="1" max="31"></label>
+          <label title="Tự lấy lùi dần văn bản đến/đi, lịch, việc VPUB, góp ý cũ đến ngày này bằng lượt dư mỗi giờ. Để trống = không lấy dữ liệu cũ">Lấy dữ liệu cũ từ ngày<input class="input" type="date" id="a-bf-from"></label>
+          <label title="Danh sách không lọc theo ngày (CSDL PX, đơn vị) chỉ lấy lại sau số giờ này; lượt dư dùng cho dữ liệu cũ">Làm mới danh sách mỗi (giờ)<input class="input" type="number" id="a-refresh" min="1" max="48"></label>
         </div>
         <div id="a-slots" class="slots"></div>
+        <div id="a-backfill" class="bf"></div>
         <p class="hint" id="a-status"></p>
         <p class="hint warn-text" id="a-warn"></p>
 

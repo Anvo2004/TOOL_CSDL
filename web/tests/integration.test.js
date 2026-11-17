@@ -203,6 +203,13 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal(hourly.body.selected.slots.length, 24);
     assert.equal(hourly.body.schedulerEnabled, false);
     assert.equal(hourly.body.selected.auto.enabled, false);
+    // Lấy dữ liệu cũ: lưu ngày bắt đầu, chu kỳ làm mới, có tiến độ cho mục theo ngày.
+    const bf = (await api('/api/auto', 'PUT', { ...auto, mode: 'hourly', items: ['csdlpx.TonGiao', 'qlvbdh.vbden'], backfillFrom: '2026-01-01', refreshHours: 12 })).body.selected;
+    assert.equal(bf.auto.backfillFrom, '2026-01-01');
+    assert.equal(bf.auto.refreshHours, 12);
+    assert.deepEqual(bf.backfill.map(b => b.itemKey), ['qlvbdh.vbden']);
+    assert.ok(!bf.backfill[0].done && bf.backfill[0].pct < 100);
+    assert.equal((await api('/api/auto', 'PUT', { ...auto, backfillFrom: 'xx' })).body.selected.auto.backfillFrom, '');
   });
   await t.test('upstream 429 blocks retries without consuming more calls', async () => {
     throttle = true;

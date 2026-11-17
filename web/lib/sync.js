@@ -124,6 +124,8 @@ function autoOf(settings, xa) {
     times: normTimes(a.times),
     items: (a.items || []).filter((k) => ITEMS.has(k)),
     days: clampInt(a.days, 1, 31, 7),
+    backfillFrom: /^\d{4}-\d{2}-\d{2}$/.test(a.backfillFrom || '') ? a.backfillFrom : '',
+    refreshHours: clampInt(a.refreshHours, 1, 48, 6),
   };
 }
 
@@ -199,15 +201,19 @@ async function nap(xaId, until) {
   while (Date.now() < until && !state.cancel.has(xaId)) await sleep(Math.min(30000, until - Date.now()));
 }
 
-// Chế độ mỗi giờ: chạy lặp vòng tròn các mục được phép, rải đều trong giờ cho đến khi hết lượt của giờ.
+// Chế độ mỗi giờ, theo thứ tự ưu tiên:
+//  1. mục đến hạn làm mới (mục theo ngày: mỗi giờ; danh sách như CSDL PX: mỗi refreshHours giờ),
+//  2. lấy dần dữ liệu cũ của các mục theo ngày (backfill),
+//  3. còn lượt thì chạy lặp vòng tròn các mục như trước, cho đến khi hết lượt của giờ.
 // Mục bị lỗi (chưa đăng ký API, sai tài khoản...) hoặc bị LGSP chặn hạn mức ngày thì bỏ khỏi vòng của giờ đó.
+const DATED_REFRESH_MS = 50 * 60000;
 async function runHour(s, xa, a, items, run) {
   const hourEnd = nextHourAt();
   const stopAt = hourEnd - 60000;
   const agg = new Map();
   const rec = (item) => {
     if (!agg.has(item.key)) {
-      const t = { xaId: xa.id, xaName: xa.name, itemKey: item.key, itemName: item.name, status: 'skipped', runs: 0, count: 0, calls: 0, callsOk: 0, callsErr: 0 };
+      const t = { xaId: xa.id, xaName: xa.name, itemKey: item.key, itemName: item.name, status: 'skipped', runs: 0, backfill: 0, count: 0, calls: 0, callsOk: 0, callsErr: 0 };
       agg.set(item.key, t);
       run.tasks.push(t);
     }
@@ -219,15 +225,37 @@ async function runHour(s, xa, a, items, run) {
     return !reason;
   });
   pool.forEach(rec);
+  let bfPool = pool.filter((item) => bfNext(xa.id, item, a));
   run.total = pool.length;
-  for (let i = 0; pool.length && Date.now() < stopAt && !state.cancel.has(xa.id);) {
-    const item = pool[i % pool.length];
-    const cost = estimateCost(item, a.days);
+  const last = db.lastSyncs(xa.id);
+  const due = (item) => Date.now() - (last.get(item.key) || 0) >= (item.dated ? DATED_REFRESH_MS : a.refreshHours * HOUR_MS);
+  let i = 0;
+  while (pool.length && Date.now() < stopAt && !state.cancel.has(xa.id)) {
+    // Chọn việc tiếp theo.
+    let task = null;
+    for (let k = 0; k < pool.length && !task; k++) {
+      const item = pool[(i + k) % pool.length];
+      if (due(item)) { task = { item }; i = (i + k + 1) % pool.length; }
+    }
+    if (!task) {
+      for (const item of bfPool) {
+        const r = bfNext(xa.id, item, a);
+        if (r) { task = { item, ...r, backfill: true }; break; }
+      }
+      if (!task) bfPool = [];
+    }
+    if (!task) { task = { item: pool[i % pool.length] }; i = (i + 1) % pool.length; }
+    const { item } = task;
+    const today = vnNow().day;
+    const from = task.backfill ? task.from : shiftDay(today, -(a.days - 1));
+    const to = task.backfill ? task.to : today;
+    const cost = estimateCost(item, task.backfill ? (Date.parse(to) - Date.parse(from)) / 86400000 + 1 : a.days);
     const t = rec(item);
     const reason = policy.windowReason(s, item) || usage.blockedReason(xa, item.category.id);
     if (reason) {
       if (!t.runs) t.error = reason;
       pool = pool.filter((x) => x !== item);
+      bfPool = bfPool.filter((x) => x !== item);
       continue;
     }
     // Chờ có đủ lượt trống; không còn trong giờ này thì để giờ sau.
@@ -237,19 +265,29 @@ async function runHour(s, xa, a, items, run) {
       await nap(xa.id, at + 500);
       continue;
     }
-    const to = vnNow().day;
     const e = await executeTask({
-      settings: s, xa, item, from: shiftDay(to, -(a.days - 1)), to, source: 'auto', waitUntil: stopAt,
-      history: t.runs === 0, // lịch sử chỉ ghi lần chạy đầu của mỗi mục trong giờ
+      settings: s, xa, item, from, to, source: 'auto', waitUntil: stopAt,
+      history: !task.backfill && t.runs === 0, // lịch sử chỉ ghi lần chạy đầu của mỗi mục trong giờ
     });
     Object.assign(t, {
-      status: e.ok ? 'ok' : 'error', runs: t.runs + 1, count: e.count, calls: t.calls + e.calls,
-      callsOk: t.callsOk + e.callsOk, callsErr: t.callsErr + e.callsErr, durationMs: e.durationMs, error: e.error,
+      status: e.ok ? 'ok' : t.status === 'ok' ? 'ok' : 'error', runs: t.runs + 1, backfill: t.backfill + (task.backfill ? 1 : 0),
+      count: task.backfill ? t.count : e.count, calls: t.calls + e.calls,
+      callsOk: t.callsOk + e.callsOk, callsErr: t.callsErr + e.callsErr, durationMs: e.durationMs, error: e.ok ? t.error : e.error,
     });
     run.runs++;
     run.calls += e.calls;
-    if (!e.ok) pool = pool.filter((x) => x !== item);
-    else i++;
+    if (e.ok) {
+      last.set(item.key, Date.now());
+      if (task.backfill) {
+        db.setMeta(bfKey(xa.id, item.key), from);
+        run.backfilled = (run.backfilled || 0) + e.count;
+      }
+    } else if (task.backfill) {
+      bfPool = bfPool.filter((x) => x !== item);
+    } else {
+      pool = pool.filter((x) => x !== item);
+      bfPool = bfPool.filter((x) => x !== item);
+    }
     run.done = run.runs;
     // Rải đều: chia thời gian còn lại của giờ cho số lượt giờ này còn được dùng. Lượt của giờ trước hết hạn
     // dần trong cửa sổ 60 phút nên lúc chạy thật vẫn kiểm tra freeAt ở trên.
@@ -316,6 +354,7 @@ function status(settings, xa) {
     running: !!run, current: run && { trigger: run.trigger, mode: run.mode, slot: run.slot, done: run.done, total: run.total, runs: run.runs, calls: run.calls },
     hourUsed: policy.hourly(settings, xa.id),
     lastRun: state.lastRun.get(xa.id) || null,
+    backfill: bfProgress(xa.id, a),
   };
 }
 
@@ -330,6 +369,35 @@ async function saveAuto(xaId, input) {
     times: normTimes(input.times),
     items: (input.items || []).filter((k) => ITEMS.has(k)),
     days: clampInt(input.days, 1, 31, 7),
+    backfillFrom: /^\d{4}-\d{2}-\d{2}$/.test(input.backfillFrom || '') ? input.backfillFrom : '',
+    refreshHours: clampInt(input.refreshHours, 1, 48, 6),
+  });
+}
+
+// ---------- Lấy dữ liệu cũ (backfill) ----------
+// Mục lọc theo ngày (văn bản đến/đi, lịch, việc VPUB, góp ý) được lấy lùi dần từng đoạn đến ngày backfillFrom.
+// Con trỏ = ngày sớm nhất đã lấy, lưu trong kho SQLite nên khởi động lại vẫn chạy tiếp.
+const bfKey = (xaId, itemKey) => `bf|${xaId}|${itemKey}`;
+function bfCursor(xaId, item, a) {
+  return db.getMeta(bfKey(xaId, item.key)) || shiftDay(vnNow().day, -(a.days - 1));
+}
+function bfNext(xaId, item, a) {
+  if (!a.backfillFrom || !item.dated) return null;
+  const cur = bfCursor(xaId, item, a);
+  if (cur <= a.backfillFrom) return null;
+  const to = shiftDay(cur, -1);
+  const span = item.maxDays || 30;
+  const from = shiftDay(to, -(span - 1)) < a.backfillFrom ? a.backfillFrom : shiftDay(to, -(span - 1));
+  return { from, to };
+}
+function bfProgress(xaId, a) {
+  if (!a.backfillFrom) return [];
+  const today = vnNow().day;
+  const total = Math.max(1, (Date.parse(today) - Date.parse(a.backfillFrom)) / 86400000);
+  return a.items.map((k) => ITEMS.get(k)).filter((it) => it && it.dated).map((it) => {
+    const cur = bfCursor(xaId, it, a);
+    const done = cur <= a.backfillFrom;
+    return { itemKey: it.key, itemName: it.name, cursor: cur, done, pct: done ? 100 : Math.max(0, Math.min(99, Math.round(((Date.parse(today) - Date.parse(cur)) / 86400000 / total) * 100))) };
   });
 }
 

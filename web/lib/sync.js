@@ -228,7 +228,13 @@ async function runHour(s, xa, a, items, run) {
   let bfPool = pool.filter((item) => bfNext(xa.id, item, a));
   run.total = pool.length;
   const last = db.lastSyncs(xa.id);
-  const due = (item) => Date.now() - (last.get(item.key) || 0) >= (item.dated ? DATED_REFRESH_MS : a.refreshHours * HOUR_MS);
+  // QLVBDH bị LGSP giới hạn khoảng 35–40 lượt/ngày mỗi khóa: danh sách đơn vị lấy lại mỗi ngày, văn bản theo chu kỳ
+  // làm mới của xã; phần còn lại của hạn mức ngày dành cho lấy dữ liệu cũ.
+  const every = (item) => (item.kind === 'qlvbdh' ? (item.dated ? a.refreshHours * HOUR_MS : 24 * HOUR_MS)
+    : item.dated ? DATED_REFRESH_MS : a.refreshHours * HOUR_MS);
+  const due = (item) => Date.now() - (last.get(item.key) || 0) >= every(item);
+  // Chạy vòng bằng lượt dư: không gọi lại QLVBDH (tốn hạn mức ngày, dữ liệu không đổi).
+  const spare = () => pool.filter((x) => x.kind !== 'qlvbdh');
   let i = 0;
   while (pool.length && Date.now() < stopAt && !state.cancel.has(xa.id)) {
     // Chọn việc tiếp theo.
@@ -244,7 +250,12 @@ async function runHour(s, xa, a, items, run) {
       }
       if (!task) bfPool = [];
     }
-    if (!task) { task = { item: pool[i % pool.length] }; i = (i + 1) % pool.length; }
+    if (!task) {
+      const sp = spare();
+      if (!sp.length) break;
+      task = { item: sp[i % sp.length] };
+      i = (i + 1) % Math.max(1, pool.length);
+    }
     const { item } = task;
     const today = vnNow().day;
     const from = task.backfill ? task.from : shiftDay(today, -(a.days - 1));

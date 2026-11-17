@@ -10,6 +10,8 @@ const viDate = (iso) => (iso ? iso.split('-').reverse().join('/') : '');
 const fmtDur = (ms) => (ms == null ? '–' : ms < 1000 ? `${ms} ms` : ms < 60000 ? `${(ms / 1000).toFixed(1)} s` : `${Math.floor(ms / 60000)}p ${Math.round((ms % 60000) / 1000)}s`);
 const fmtTime = (t) => (t ? new Date(t).toLocaleString('vi-VN', { hour12: false }) : '');
 const taskKey = (xaId, itemKey) => `${xaId}|${itemKey}`;
+const ic = (name, cls = '') => `<svg class="i ${cls}"><use href="icons.svg#i-${name}"/></svg>`;
+const hook = (name, ...args) => { if (typeof window[name] === 'function') { try { window[name](...args); } catch (e) { console.error(e); } } };
 
 const STATUS_LABEL = { ok: 'Thành công', error: 'Lỗi', running: 'Đang chạy', queued: 'Đang chờ', pending: 'Chưa chạy', skipped: 'Bỏ qua' };
 const SOURCE_LABEL = { manual: 'Thủ công', auto: 'Tự động', runner: 'Chạy lặp' };
@@ -127,6 +129,7 @@ async function init() {
   renderPolicy();
   setInterval(tickSchedule, 1000);
   setInterval(refreshPolicy, 20000);
+  hook('onReady');
   log('Sẵn sàng. Chọn danh mục, xã và bấm "Truy vấn".', 'l-info');
 }
 
@@ -202,7 +205,7 @@ function renderCatalog() {
         <input type="checkbox" class="cat-check" data-cat="${cat.id}" ${nSel === keys.length ? 'checked' : ''}>
         <span class="name">${esc(cat.name)}</span>
         <span class="badge">${nSel}/${keys.length}</span>
-        <span class="caret">▶</span>
+        <span class="caret">${ic('chevron-right')}</span>
       </div>
       <div class="cat-items">
         ${cat.note ? `<p class="cat-note">${esc(cat.note)}</p>` : ''}
@@ -242,9 +245,9 @@ function selectedPairs() {
 function updateRunButton() {
   const n = selectedPairs().length;
   const iter = Math.max(1, Math.round(Number($('#opt-iter').value) || 1));
-  $('#btn-run').textContent = S.running
-    ? (S.run && S.run.iterations > 1 ? `⏳ Vòng ${S.run.iter}/${S.run.iterations}...` : '⏳ Đang truy vấn...')
-    : `▶ Truy vấn (${n} tác vụ${iter > 1 ? ` × ${iter} vòng` : ''})`;
+  $('#btn-run').innerHTML = S.running
+    ? `${ic('clock')}${S.run && S.run.iterations > 1 ? `Vòng ${S.run.iter}/${S.run.iterations}...` : 'Đang truy vấn...'}`
+    : `${ic('play')}Truy vấn (${n} tác vụ${iter > 1 ? ` × ${iter} vòng` : ''})`;
   $('#btn-run').disabled = S.running || n === 0;
   $('#btn-stop').disabled = !S.running;
 }
@@ -541,9 +544,9 @@ function listHtml(infos, totalRows) {
       <td>${t.finishedAt && ['ok', 'error'].includes(t.status) ? fmtTime(t.finishedAt) : ''}</td>
       ${note}
       <td class="actions">
-        <button class="btn sm" data-act="view" data-key="${esc(i.k)}" ${hasData ? '' : 'disabled'}>Xem</button>
+        <button class="btn sm" data-act="view" data-key="${esc(i.k)}" ${hasData ? '' : 'disabled'}>${ic('eye')}Xem</button>
         <a class="btn sm" href="/api/download?${q}&format=csv" ${hasData ? '' : 'style="pointer-events:none;opacity:.45"'}>CSV</a>
-        <button class="btn sm" data-act="rerun" data-key="${esc(i.k)}" ${S.running ? 'disabled' : ''} title="Truy vấn lại mục này">↻</button>
+        <button class="btn sm" data-act="rerun" data-key="${esc(i.k)}" ${S.running ? 'disabled' : ''} title="Truy vấn lại mục này">${ic('refresh-cw')}</button>
       </td>
     </tr>`;
   }).join('');
@@ -720,6 +723,7 @@ function renderHistory() {
       <td style="font-size:12px">${(h.files || []).map(esc).join('<br>')}</td>
       <td class="${h.ok ? 'warn-text' : 'err-text'}">${esc(h.ok ? (h.warnings || []).join('; ') : h.error)}</td>
     </tr>`).join('')}</tbody></table>` : '<div class="empty">Chưa có lịch sử.</div>';
+  hook('onHistory', rows);
 }
 
 function exportHistory() {
@@ -928,6 +932,7 @@ function renderUsage() {
     <tbody>${u.byXa.sort((a, b) => b.calls - a.calls).map((x) => `<tr><td>${esc(xaName(x.xaId))}</td><td class="num">${fmtNum(x.tasksOk)}</td><td class="num">${fmtNum(x.tasksErr)}</td>
       <td class="num"><b>${fmtNum(x.calls)}</b></td><td class="num">${fmtNum(x.ok)}</td><td class="num">${fmtNum(x.err)}</td></tr>`).join('')}</tbody>
   </table>` : '<div class="empty">Chưa có dữ liệu.</div>';
+  hook('onUsage', u);
 }
 
 function exportUsage() {
@@ -1134,6 +1139,7 @@ function bindEvents() {
     if (b.dataset.tab === 'history') loadHistory();
     if (b.dataset.tab === 'auto') loadAutoTab().catch((e) => toast(e.message));
     if (b.dataset.tab === 'accounts') renderUsers();
+    hook('onTabShow', b.dataset.tab);
   }));
 
   // Tab tự động: tải lại số liệu mỗi 15 giây khi đang mở.
@@ -1284,7 +1290,7 @@ function bindEvents() {
       const out = $('[data-role=token-result]', card);
       out.textContent = 'Đang thử...';
       const r = await api('/api/test-token', { method: 'POST', body: JSON.stringify({ xaId: card.dataset.id }) }).catch((err) => ({ ok: false, error: err.message }));
-      out.textContent = r.ok ? '✔ Lấy token thành công' : `✘ ${r.error}`;
+      out.textContent = r.ok ? 'Lấy token thành công' : `Lỗi: ${r.error}`;
       out.style.color = r.ok ? 'var(--ok)' : 'var(--err)';
     }
   });

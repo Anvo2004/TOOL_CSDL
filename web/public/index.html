@@ -3,34 +3,151 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Truy vấn dữ liệu LGSP</title>
+  <title>Dữ liệu LGSP Đà Nẵng</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+  <script src="vendor/chart.umd.js" defer></script>
   <script src="app.js" defer></script>
+  <script src="dash.js" defer></script>
 </head>
 <body>
-  <header class="topbar">
+<div class="shell">
+  <!-- ============ MENU BÊN TRÁI ============ -->
+  <aside class="sidenav" id="sidenav">
     <div class="brand">
-      <div class="logo">DB</div>
+      <div class="logo"><svg class="i"><use href="icons.svg#i-database"/></svg></div>
       <div>
-        <h1>Truy vấn dữ liệu LGSP</h1>
-        <p>Nền tảng tích hợp, chia sẻ dữ liệu thành phố Đà Nẵng</p>
+        <h1>Dữ liệu LGSP</h1>
+        <p>Đà Nẵng · xã / phường</p>
       </div>
     </div>
     <nav class="tabs">
-      <button class="tab active" data-tab="query">Truy vấn</button>
-      <button class="tab" data-tab="auto">Tự động &amp; hạn mức</button>
-      <button class="tab" data-tab="history">Lịch sử</button>
-      <button class="tab" data-tab="config">Cấu hình</button>
-      <button class="tab admin-only" data-tab="accounts">Tài khoản xã/phường</button>
-      <span class="me hidden" id="me"></span>
-      <button class="tab hidden" id="btn-passwd">Đổi mật khẩu</button>
-      <button class="tab hidden" id="btn-logout">Đăng xuất</button>
+      <div class="nav-group">Phân tích</div>
+      <button class="tab active" data-tab="dash"><svg class="i"><use href="icons.svg#i-layout-dashboard"/></svg><span>Tổng quan</span></button>
+      <button class="tab" data-tab="sector"><svg class="i"><use href="icons.svg#i-chart-pie"/></svg><span>Chuyên ngành</span></button>
+      <button class="tab" data-tab="search"><svg class="i"><use href="icons.svg#i-search"/></svg><span>Tra cứu &amp; xuất số liệu</span></button>
+      <div class="nav-group">Vận hành</div>
+      <button class="tab" data-tab="query"><svg class="i"><use href="icons.svg#i-play"/></svg><span>Truy vấn</span></button>
+      <button class="tab" data-tab="auto"><svg class="i"><use href="icons.svg#i-zap"/></svg><span>Tự động &amp; hạn mức</span></button>
+      <button class="tab" data-tab="history"><svg class="i"><use href="icons.svg#i-history"/></svg><span>Lịch sử</span></button>
+      <div class="nav-group">Quản trị</div>
+      <button class="tab" data-tab="config"><svg class="i"><use href="icons.svg#i-settings"/></svg><span>Cấu hình</span></button>
+      <button class="tab admin-only" data-tab="accounts"><svg class="i"><use href="icons.svg#i-users"/></svg><span>Tài khoản xã/phường</span></button>
     </nav>
-  </header>
+    <div class="nav-foot">
+      <div class="me hidden" id="me"></div>
+      <button class="tab hidden" id="btn-passwd"><svg class="i"><use href="icons.svg#i-key"/></svg><span>Đổi mật khẩu</span></button>
+      <button class="tab hidden" id="btn-logout"><svg class="i"><use href="icons.svg#i-log-out"/></svg><span>Đăng xuất</span></button>
+    </div>
+  </aside>
+
+  <div class="main">
+  <!-- ============ TỔNG QUAN (Dashboard tổng hợp) ============ -->
+  <main id="tab-dash" class="tab-page">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Tổng quan dữ liệu</h2>
+        <p class="page-sub">Dashboard tổng hợp: số liệu đã đồng bộ từ Trục LGSP, tình trạng kết nối và biến động dữ liệu</p>
+      </div>
+      <div class="toolbar-right">
+        <select class="input admin-only" id="d-xa"></select>
+        <button class="btn" id="d-refresh"><svg class="i"><use href="icons.svg#i-refresh-cw"/></svg>Tải lại</button>
+      </div>
+    </header>
+    <div class="kpis" id="d-kpis"></div>
+    <div class="grid g-3">
+      <section class="card span-2">
+        <div class="card-title"><span class="ic-chip c-blue"><svg class="i"><use href="icons.svg#i-chart-column"/></svg></span><h3>Bản ghi theo xã &amp; ngành</h3></div>
+        <div class="chart-box"><canvas id="c-xa"></canvas></div>
+      </section>
+      <section class="card">
+        <div class="card-title"><span class="ic-chip c-violet"><svg class="i"><use href="icons.svg#i-chart-pie"/></svg></span><h3>Cơ cấu theo ngành</h3></div>
+        <div class="chart-box"><canvas id="c-sector"></canvas></div>
+      </section>
+      <section class="card span-2">
+        <div class="card-title"><span class="ic-chip c-cyan"><svg class="i"><use href="icons.svg#i-file-text"/></svg></span><h3>Văn bản đến / đi theo tháng</h3></div>
+        <div class="chart-box"><canvas id="c-docs"></canvas></div>
+      </section>
+      <section class="card">
+        <div class="card-title"><span class="ic-chip c-green"><svg class="i"><use href="icons.svg#i-zap"/></svg></span><h3>Đồng bộ tự động</h3></div>
+        <div id="d-auto" class="auto-list"></div>
+      </section>
+      <section class="card span-2">
+        <div class="card-title"><span class="ic-chip c-orange"><svg class="i"><use href="icons.svg#i-activity"/></svg></span><h3>Lượt gọi API 30 ngày</h3><span class="hint">ngày tính 7h → 7h hôm sau</span></div>
+        <div class="chart-box"><canvas id="c-calls"></canvas></div>
+      </section>
+      <section class="card">
+        <div class="card-title"><span class="ic-chip c-rose"><svg class="i"><use href="icons.svg#i-trending-up"/></svg></span><h3>Biến động dữ liệu 30 ngày</h3></div>
+        <div class="chart-box"><canvas id="c-changes"></canvas></div>
+      </section>
+    </div>
+    <section class="card">
+      <div class="card-title"><span class="ic-chip c-amber"><svg class="i"><use href="icons.svg#i-clock"/></svg></span><h3>Độ mới dữ liệu (xã × mục)</h3>
+        <span class="legend"><i class="fr fr-1"></i>&lt; 6 giờ <i class="fr fr-2"></i>&lt; 24 giờ <i class="fr fr-3"></i>&lt; 7 ngày <i class="fr fr-4"></i>cũ hơn</span></div>
+      <div class="table-wrap" id="d-fresh"></div>
+    </section>
+  </main>
+
+  <!-- ============ CHUYÊN NGÀNH ============ -->
+  <main id="tab-sector" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Dashboard chuyên ngành</h2>
+        <p class="page-sub">Số liệu theo từng ngành, phân bố theo các thuộc tính chính của dữ liệu</p>
+      </div>
+      <div class="toolbar-right">
+        <select class="input admin-only" id="s-xa"></select>
+      </div>
+    </header>
+    <div class="sector-tabs" id="s-sectors"></div>
+    <div class="kpis" id="s-kpis"></div>
+    <section class="card">
+      <div class="card-title"><span class="ic-chip c-blue"><svg class="i"><use href="icons.svg#i-chart-column"/></svg></span><h3 id="s-chart-title">Số bản ghi theo mục và xã</h3></div>
+      <div class="chart-box tall"><canvas id="c-sector-xa"></canvas></div>
+    </section>
+    <div id="s-breakdowns" class="grid g-2"></div>
+  </main>
+
+  <!-- ============ TRA CỨU ============ -->
+  <main id="tab-search" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Tra cứu &amp; xuất số liệu</h2>
+        <p class="page-sub">Tìm trên toàn bộ dữ liệu đã đồng bộ, không cần gõ dấu. Số CCCD, điện thoại, tài khoản được che.</p>
+      </div>
+    </header>
+    <section class="card filter-card">
+      <form id="r-form" class="filters" autocomplete="off">
+        <label class="grow">Từ khóa<span class="input-icon"><svg class="i"><use href="icons.svg#i-search"/></svg><input class="input" name="q" type="search" placeholder="vd: nguyen van a, trung phuoc, karaoke..."></span></label>
+        <label class="admin-only">Xã / phường<select class="input" name="xa" id="r-xa"></select></label>
+        <label>Ngành<select class="input" name="sector" id="r-sector"></select></label>
+        <label>Mục dữ liệu<select class="input" name="item" id="r-item"></select></label>
+        <label>Từ ngày<input class="input" type="date" name="from"></label>
+        <label>Đến ngày<input class="input" type="date" name="to"></label>
+        <div class="filter-actions">
+          <button class="btn primary" type="submit"><svg class="i"><use href="icons.svg#i-filter"/></svg>Lọc</button>
+          <button class="btn" type="button" id="r-reset"><svg class="i"><use href="icons.svg#i-x"/></svg>Xóa lọc</button>
+          <a class="btn" id="r-csv"><svg class="i"><use href="icons.svg#i-download"/></svg>Xuất CSV</a>
+          <button class="btn" type="button" id="r-excel"><svg class="i"><use href="icons.svg#i-file-spreadsheet"/></svg>Excel</button>
+        </div>
+      </form>
+    </section>
+    <div class="result-bar"><span id="r-count"></span><div class="pager"><button class="btn sm" id="r-prev">‹ Trước</button><span id="r-page"></span><button class="btn sm" id="r-next">Sau ›</button></div></div>
+    <section class="card flush"><div class="table-wrap tall" id="r-wrap"></div></section>
+  </main>
 
   <!-- ============ TRUY VẤN ============ -->
-  <main id="tab-query" class="tab-page layout">
+  <main id="tab-query" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Truy vấn trực tiếp</h2>
+        <p class="page-sub">Gọi API LGSP ngay cho các xã và mục đã chọn, theo đúng quy định kết nối</p>
+      </div>
+    </header>
+    <div class="layout">
     <aside class="sidebar">
       <section class="card">
         <div class="card-head">
@@ -92,19 +209,19 @@
       </section>
 
       <div class="run-bar">
-        <button id="btn-run" class="btn primary big">▶ Truy vấn</button>
-        <button id="btn-stop" class="btn danger big" disabled>■ Dừng</button>
+        <button id="btn-run" class="btn primary big">Truy vấn</button>
+        <button id="btn-stop" class="btn danger big" disabled><svg class="i"><use href="icons.svg#i-square"/></svg>Dừng</button>
       </div>
     </aside>
 
     <section class="content">
       <section class="card policy-card" id="policy-card"></section>
       <div class="stats-cards">
-        <div class="stat"><span class="stat-label">Tác vụ</span><span class="stat-value" id="s-tasks">0</span><span class="stat-sub" id="s-tasks-sub">đã chọn</span></div>
-        <div class="stat ok"><span class="stat-label">Thành công</span><span class="stat-value" id="s-ok">0</span><span class="stat-sub">mục</span></div>
-        <div class="stat err"><span class="stat-label">Lỗi</span><span class="stat-value" id="s-err">0</span><span class="stat-sub">mục</span></div>
-        <div class="stat accent"><span class="stat-label">Tổng bản ghi</span><span class="stat-value" id="s-rows">0</span><span class="stat-sub">đã truy vấn được</span></div>
-        <div class="stat"><span class="stat-label">Thời gian</span><span class="stat-value" id="s-time">–</span><span class="stat-sub" id="s-time-sub">lần chạy gần nhất</span></div>
+        <div class="stat"><span class="stat-ic c-blue"><svg class="i"><use href="icons.svg#i-list"/></svg></span><span class="stat-label">Tác vụ</span><span class="stat-value" id="s-tasks">0</span><span class="stat-sub" id="s-tasks-sub">đã chọn</span></div>
+        <div class="stat ok"><span class="stat-ic c-green"><svg class="i"><use href="icons.svg#i-circle-check"/></svg></span><span class="stat-label">Thành công</span><span class="stat-value" id="s-ok">0</span><span class="stat-sub">mục</span></div>
+        <div class="stat err"><span class="stat-ic c-rose"><svg class="i"><use href="icons.svg#i-circle-x"/></svg></span><span class="stat-label">Lỗi</span><span class="stat-value" id="s-err">0</span><span class="stat-sub">mục</span></div>
+        <div class="stat accent"><span class="stat-ic c-violet"><svg class="i"><use href="icons.svg#i-database"/></svg></span><span class="stat-label">Tổng bản ghi</span><span class="stat-value" id="s-rows">0</span><span class="stat-sub">đã truy vấn được</span></div>
+        <div class="stat"><span class="stat-ic c-amber"><svg class="i"><use href="icons.svg#i-clock"/></svg></span><span class="stat-label">Thời gian</span><span class="stat-value" id="s-time">–</span><span class="stat-sub" id="s-time-sub">lần chạy gần nhất</span></div>
       </div>
       <div class="progress"><div class="progress-bar" id="progress-bar"></div><span id="progress-text"></span></div>
 
@@ -113,7 +230,7 @@
           <h2>Kết quả chạy lặp</h2>
           <div class="toolbar-right">
             <span class="hint" id="iter-sum"></span>
-            <button class="btn" id="iter-excel">⤓ Excel</button>
+            <button class="btn" id="iter-excel"><svg class="i"><use href="icons.svg#i-file-spreadsheet"/></svg>Excel</button>
             <button class="link" id="iter-hide">Ẩn</button>
           </div>
         </div>
@@ -135,8 +252,8 @@
               <option value="pending">Chưa chạy / đang chờ</option>
             </select>
             <label class="check small"><input type="checkbox" id="only-selected" checked> Chỉ mục đang chọn</label>
-            <button class="btn" id="btn-excel-stats">⤓ Excel thống kê</button>
-            <button class="btn primary" id="btn-excel-all">⤓ Excel toàn bộ dữ liệu</button>
+            <button class="btn" id="btn-excel-stats"><svg class="i"><use href="icons.svg#i-file-spreadsheet"/></svg>Excel thống kê</button>
+            <button class="btn primary" id="btn-excel-all"><svg class="i"><use href="icons.svg#i-download"/></svg>Excel toàn bộ dữ liệu</button>
           </div>
         </div>
         <div class="table-wrap" id="stats-wrap"></div>
@@ -150,17 +267,24 @@
         <pre id="log" class="log"></pre>
       </section>
     </section>
+    </div>
   </main>
 
   <!-- ============ TỰ ĐỘNG & HẠN MỨC ============ -->
   <main id="tab-auto" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Tự động &amp; hạn mức</h2>
+        <p class="page-sub">Lịch đồng bộ của từng xã, lượt gọi API và hạn mức theo CV 7779/SKHCN-CNTT</p>
+      </div>
+    </header>
     <div class="stats-cards">
-      <div class="stat accent"><span class="stat-label">Lượt gọi API hôm nay</span><span class="stat-value" id="u-today">0</span><span class="stat-sub" id="u-today-sub"></span></div>
-      <div class="stat"><span class="stat-label">7 ngày</span><span class="stat-value" id="u-week">0</span><span class="stat-sub" id="u-week-sub"></span></div>
-      <div class="stat"><span class="stat-label">30 ngày</span><span class="stat-value" id="u-month">0</span><span class="stat-sub" id="u-month-sub"></span></div>
-      <div class="stat ok"><span class="stat-label">Truy vấn thành công hôm nay</span><span class="stat-value" id="u-tok">0</span><span class="stat-sub">tác vụ (xã × mục)</span></div>
-      <div class="stat err"><span class="stat-label">Truy vấn lỗi hôm nay</span><span class="stat-value" id="u-terr">0</span><span class="stat-sub" id="u-reset"></span></div>
-      <div class="stat"><span class="stat-label">60 phút qua</span><span class="stat-value" id="u-hour">0</span><span class="stat-sub" id="u-hour-sub"></span></div>
+      <div class="stat accent"><span class="stat-ic c-blue"><svg class="i"><use href="icons.svg#i-activity"/></svg></span><span class="stat-label">Lượt gọi API hôm nay</span><span class="stat-value" id="u-today">0</span><span class="stat-sub" id="u-today-sub"></span></div>
+      <div class="stat"><span class="stat-ic c-cyan"><svg class="i"><use href="icons.svg#i-calendar"/></svg></span><span class="stat-label">7 ngày</span><span class="stat-value" id="u-week">0</span><span class="stat-sub" id="u-week-sub"></span></div>
+      <div class="stat"><span class="stat-ic c-violet"><svg class="i"><use href="icons.svg#i-calendar"/></svg></span><span class="stat-label">30 ngày</span><span class="stat-value" id="u-month">0</span><span class="stat-sub" id="u-month-sub"></span></div>
+      <div class="stat ok"><span class="stat-ic c-green"><svg class="i"><use href="icons.svg#i-circle-check"/></svg></span><span class="stat-label">Truy vấn thành công hôm nay</span><span class="stat-value" id="u-tok">0</span><span class="stat-sub">tác vụ (xã × mục)</span></div>
+      <div class="stat err"><span class="stat-ic c-rose"><svg class="i"><use href="icons.svg#i-circle-x"/></svg></span><span class="stat-label">Truy vấn lỗi hôm nay</span><span class="stat-value" id="u-terr">0</span><span class="stat-sub" id="u-reset"></span></div>
+      <div class="stat"><span class="stat-ic c-amber"><svg class="i"><use href="icons.svg#i-gauge"/></svg></span><span class="stat-label">60 phút qua</span><span class="stat-value" id="u-hour">0</span><span class="stat-sub" id="u-hour-sub"></span></div>
     </div>
 
     <div class="auto-grid">
@@ -168,13 +292,13 @@
         <div class="table-toolbar">
           <h2>Đồng bộ tự động <select id="a-xa-sel" class="input"></select></h2>
           <div class="toolbar-right">
-            <button class="btn" id="auto-preset" title="Tự chọn các mục đã chạy thành công của xã, bật chạy liên tục mỗi giờ: mỗi giờ dùng hết số lượt kết nối được phép, suốt 24 giờ">⚡ Chạy liên tục mỗi giờ</button>
-            <button class="btn" id="auto-run">▶ Chạy ngay 1 lượt</button>
-            <button class="btn primary" id="auto-save">💾 Lưu</button>
+            <button class="btn" id="auto-preset" title="Tự chọn các mục đã chạy thành công của xã, bật chạy liên tục mỗi giờ: mỗi giờ dùng hết số lượt kết nối được phép, suốt 24 giờ"><svg class="i"><use href="icons.svg#i-zap"/></svg>Chạy liên tục mỗi giờ</button>
+            <button class="btn" id="auto-run"><svg class="i"><use href="icons.svg#i-play"/></svg>Chạy ngay 1 lượt</button>
+            <button class="btn primary" id="auto-save"><svg class="i"><use href="icons.svg#i-save"/></svg>Lưu</button>
           </div>
         </div>
         <p class="hint warn-text hidden" id="a-server-paused">Lịch tự động trên máy chủ đang tạm dừng. Các thiết lập vẫn được lưu; nút “Chạy ngay 1 lượt” vẫn hoạt động. Liên hệ người vận hành để mở lại lịch.</p>
-        <label class="check"><input type="checkbox" id="a-enabled"> <b>Bật tự động đồng bộ mỗi ngày cho xã này</b></label>
+        <label class="check switch-line"><input type="checkbox" id="a-enabled"> <b>Bật tự động đồng bộ mỗi ngày cho xã này</b></label>
         <div class="form-grid compact">
           <label class="span2">Cách chạy<select class="input" id="a-mode">
             <option value="hourly">Liên tục mỗi giờ: mỗi giờ chạy lặp đến khi hết lượt kết nối của giờ, suốt 24 giờ</option>
@@ -207,16 +331,24 @@
     </div>
 
     <section class="card">
+      <div class="card-title"><span class="ic-chip c-orange"><svg class="i"><use href="icons.svg#i-chart-column"/></svg></span><h3>Lượt gọi API theo ngày và theo xã</h3></div>
+      <div class="grid g-3 inner">
+        <div class="chart-box span-2"><canvas id="c-usage"></canvas></div>
+        <div class="chart-box"><canvas id="c-usage-xa"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
       <div class="table-toolbar">
         <h2>Các lượt đồng bộ</h2>
-        <button class="btn" id="u-refresh">↻ Tải lại</button>
+        <button class="btn" id="u-refresh"><svg class="i"><use href="icons.svg#i-refresh-cw"/></svg>Tải lại</button>
       </div>
       <div class="table-wrap" id="u-runs"></div>
     </section>
 
     <div class="auto-grid even">
       <section class="card">
-        <div class="table-toolbar"><h2>Theo ngày (30 ngày)</h2><button class="btn" id="u-excel">⤓ Excel</button></div>
+        <div class="table-toolbar"><h2>Theo ngày (30 ngày)</h2><button class="btn" id="u-excel"><svg class="i"><use href="icons.svg#i-file-spreadsheet"/></svg>Excel</button></div>
         <div class="table-wrap" id="u-daily"></div>
       </section>
       <section class="card">
@@ -228,13 +360,20 @@
 
   <!-- ============ LỊCH SỬ ============ -->
   <main id="tab-history" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Lịch sử truy vấn</h2>
+        <p class="page-sub">Mỗi xã giữ 200 dòng mới nhất; số lượt gọi vẫn được đếm đầy đủ ở tab Tự động &amp; hạn mức</p>
+      </div>
+    </header>
+    <div class="kpis" id="h-kpis"></div>
     <section class="card">
       <div class="table-toolbar">
-        <h2>Lịch sử truy vấn <span class="hint">(mỗi xã giữ 200 dòng mới nhất; số lượt gọi vẫn được đếm đầy đủ ở tab Tự động &amp; hạn mức)</span></h2>
+        <h2>Các lần chạy</h2>
         <div class="toolbar-right">
           <input type="search" id="hist-search" class="input" placeholder="Lọc theo xã, mục, lỗi...">
-          <button class="btn" id="hist-refresh">↻ Tải lại</button>
-          <button class="btn" id="hist-excel">⤓ Xuất Excel</button>
+          <button class="btn" id="hist-refresh"><svg class="i"><use href="icons.svg#i-refresh-cw"/></svg>Tải lại</button>
+          <button class="btn" id="hist-excel"><svg class="i"><use href="icons.svg#i-file-spreadsheet"/></svg>Xuất Excel</button>
         </div>
       </div>
       <div class="table-wrap" id="hist-wrap"></div>
@@ -243,10 +382,26 @@
 
   <!-- ============ CẤU HÌNH ============ -->
   <main id="tab-config" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Cấu hình</h2>
+        <p class="page-sub">Kết nối LGSP của từng xã, quy định kết nối, kho dữ liệu và sao lưu</p>
+      </div>
+    </header>
+    <section class="card admin-only" id="bk-card">
+      <div class="table-toolbar">
+        <div class="card-title"><span class="ic-chip c-green"><svg class="i"><use href="icons.svg#i-hard-drive"/></svg></span><h3>Kho dữ liệu &amp; sao lưu</h3></div>
+        <button class="btn" id="bk-run"><svg class="i"><use href="icons.svg#i-archive"/></svg>Sao lưu ngay</button>
+      </div>
+      <div class="kpis small" id="bk-stats"></div>
+      <div class="table-wrap" id="bk-list"></div>
+      <p class="hint">Sao lưu tự động 02:30 hằng ngày (kho SQLite + cấu hình đã mã hóa), giữ 14 ngày trên máy chủ.</p>
+    </section>
+
     <section class="card admin-only">
       <div class="table-toolbar">
         <h2>Cấu hình chung</h2>
-        <button class="btn primary" id="cfg-save">💾 Lưu cấu hình</button>
+        <button class="btn primary" id="cfg-save"><svg class="i"><use href="icons.svg#i-save"/></svg>Lưu cấu hình</button>
       </div>
       <div class="form-grid" id="cfg-settings"></div>
       <fieldset class="plain">
@@ -276,8 +431,8 @@
       <div class="table-toolbar">
         <h2 id="cfg-xa-title">Danh sách xã / phường</h2>
         <div class="toolbar-right">
-          <button class="btn admin-only" id="cfg-add">＋ Thêm xã</button>
-          <button class="btn primary xa-only hidden" id="cfg-save-xa">💾 Lưu cấu hình</button>
+          <button class="btn admin-only" id="cfg-add"><svg class="i"><use href="icons.svg#i-plus"/></svg>Thêm xã</button>
+          <button class="btn primary xa-only hidden" id="cfg-save-xa"><svg class="i"><use href="icons.svg#i-save"/></svg>Lưu cấu hình</button>
         </div>
       </div>
       <div id="cfg-xa" class="xa-cards"></div>
@@ -286,16 +441,22 @@
 
   <!-- ============ TÀI KHOẢN XÃ / PHƯỜNG (quản trị) ============ -->
   <main id="tab-accounts" class="tab-page hidden">
+    <header class="page-head">
+      <div>
+        <h2 class="page-title">Tài khoản xã / phường</h2>
+        <p class="page-sub">Mỗi tài khoản chỉ thấy dữ liệu của xã được cấp quyền</p>
+      </div>
+    </header>
     <section class="card" id="users-card">
       <div class="table-toolbar">
-        <h2>Tạo tài khoản cho xã / phường</h2>
+        <div class="card-title"><span class="ic-chip c-violet"><svg class="i"><use href="icons.svg#i-plus"/></svg></span><h3>Tạo tài khoản cho xã / phường</h3></div>
         <span class="hint">Tài khoản quản trị do người vận hành máy chủ thiết lập</span>
       </div>
       <form id="user-form" class="form-grid compact user-form" autocomplete="off">
         <label>Tên đăng nhập<input class="input" name="username" placeholder="vd: dienbanbac" required></label>
         <label>Mật khẩu (ít nhất 8 ký tự, để trống = tự tạo)<input class="input" name="password" type="text" autocomplete="new-password"></label>
         <label>Cấp quyền cho xã / phường<select class="input" name="xaId" id="user-xa"></select></label>
-        <button class="btn primary" type="submit">＋ Tạo tài khoản</button>
+        <button class="btn primary" type="submit"><svg class="i"><use href="icons.svg#i-plus"/></svg>Tạo tài khoản</button>
       </form>
       <p class="hint">
         Tài khoản xã đăng nhập vào chỉ thấy đúng một xã được cấp: truy vấn, tự đặt lịch đồng bộ tự động, sửa khóa / tài khoản kết nối
@@ -306,21 +467,23 @@
     <section class="card">
       <div class="table-toolbar">
         <h2>Danh sách tài khoản</h2>
-        <button class="btn" id="users-refresh">↻ Tải lại</button>
+        <button class="btn" id="users-refresh"><svg class="i"><use href="icons.svg#i-refresh-cw"/></svg>Tải lại</button>
       </div>
       <div class="table-wrap" id="users-wrap"></div>
       <p class="hint">
         Đổi ô "Xã / phường" để chuyển quyền tài khoản sang xã khác. "Đặt mật khẩu": tự nhập mật khẩu mới hoặc để trống để web tự tạo
-        (chỉ hiện một lần, hãy sao chép gửi cho xã). Chỉ quản trị được đổi mật khẩu: tài khoản xã không tự đổi được; quản trị đổi mật khẩu của mình bằng nút "Đổi mật khẩu" trên thanh trên cùng.
+        (chỉ hiện một lần, hãy sao chép gửi cho xã). Chỉ quản trị được đổi mật khẩu: tài khoản xã không tự đổi được; quản trị đổi mật khẩu của mình bằng nút "Đổi mật khẩu" ở menu bên trái.
         Khóa, đặt mật khẩu mới, chuyển xã hoặc xóa thì phiên đang đăng nhập của tài khoản đó bị thoát ngay.
       </p>
     </section>
   </main>
+  </div>
+</div>
 
   <!-- ============ ĐỔI MẬT KHẨU ============ -->
   <div class="modal hidden" id="pw-modal">
     <form class="modal-box narrow" id="pw-form">
-      <div class="modal-head"><h2>Đổi mật khẩu quản trị</h2><button class="icon-btn" type="button" id="pw-close" title="Đóng">✕</button></div>
+      <div class="modal-head"><h2>Đổi mật khẩu quản trị</h2><button class="icon-btn" type="button" id="pw-close" title="Đóng"><svg class="i"><use href="icons.svg#i-x"/></svg></button></div>
       <label class="field">Mật khẩu hiện tại<input class="input" type="password" name="current" autocomplete="current-password" required></label>
       <label class="field">Mật khẩu mới (ít nhất 8 ký tự)<input class="input" type="password" name="next" autocomplete="new-password" minlength="8" required></label>
       <label class="field">Nhập lại mật khẩu mới<input class="input" type="password" name="again" autocomplete="new-password" minlength="8" required></label>
@@ -336,18 +499,29 @@
           <h2 id="v-title"></h2>
           <p class="hint" id="v-sub"></p>
         </div>
-        <button class="icon-btn" id="v-close" title="Đóng">✕</button>
+        <button class="icon-btn" id="v-close" title="Đóng"><svg class="i"><use href="icons.svg#i-x"/></svg></button>
       </div>
       <div class="table-toolbar">
         <input type="search" id="v-search" class="input" placeholder="Tìm trong dữ liệu...">
         <div class="toolbar-right">
-          <a class="btn" id="v-csv">⤓ CSV</a>
-          <a class="btn" id="v-json">⤓ JSON</a>
-          <button class="btn primary" id="v-excel">⤓ Excel</button>
+          <a class="btn" id="v-csv"><svg class="i"><use href="icons.svg#i-download"/></svg>CSV</a>
+          <a class="btn" id="v-json"><svg class="i"><use href="icons.svg#i-file-json"/></svg>JSON</a>
+          <button class="btn primary" id="v-excel"><svg class="i"><use href="icons.svg#i-file-spreadsheet"/></svg>Excel</button>
         </div>
       </div>
       <div class="table-wrap tall" id="v-wrap"></div>
       <div class="modal-foot"><span id="v-count"></span><button class="btn" id="v-more">Tải thêm</button></div>
+    </div>
+  </div>
+
+  <!-- ============ CHI TIẾT BẢN GHI (tra cứu) ============ -->
+  <div class="modal hidden" id="rec-modal">
+    <div class="modal-box narrow wide-ish">
+      <div class="modal-head">
+        <div><h2 id="rec-title"></h2><p class="hint" id="rec-sub"></p></div>
+        <button class="icon-btn" id="rec-close" title="Đóng"><svg class="i"><use href="icons.svg#i-x"/></svg></button>
+      </div>
+      <div class="table-wrap" id="rec-body"></div>
     </div>
   </div>
 

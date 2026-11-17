@@ -13,6 +13,17 @@ node server.js
 
 Sau đó mở http://localhost:3000. Trên Windows có thể bấm đúp `start.bat`.
 
+## Giao diện
+
+Menu bên trái gồm 3 nhóm (hệ thiết kế: `DESIGN.md`, icon Lucide trong `public/icons.svg`, biểu đồ Chart.js trong `public/vendor/`):
+
+- **Tổng quan** (dashboard tổng hợp): tổng bản ghi, mục có dữ liệu, lượt gọi API, tỷ lệ thành công, số xã đang tự động; biểu đồ bản ghi theo xã × ngành, cơ cấu ngành, văn bản đến/đi theo tháng, lượt gọi 30 ngày, biến động dữ liệu; bảng độ mới dữ liệu xã × mục.
+- **Chuyên ngành**: 8 ngành, số bản ghi theo mục và xã, biểu đồ phân bố tự động theo các thuộc tính phân loại (giới tính, dân tộc, thôn/tổ, đối tượng, trạng thái...).
+- **Tra cứu & xuất số liệu**: tìm không dấu trên toàn kho, lọc xã / ngành / mục / khoảng ngày, xem chi tiết bản ghi, xuất CSV (đủ) hoặc Excel (5.000 dòng đầu). CCCD, điện thoại, số tài khoản luôn được che.
+- **Truy vấn, Tự động & hạn mức, Lịch sử** (vận hành) và **Cấu hình, Tài khoản** (quản trị; Cấu hình có thẻ kho dữ liệu & sao lưu).
+
+Thêm `#sector`, `#search`, `#auto`... vào cuối địa chỉ để mở thẳng trang đó.
+
 ## Sử dụng
 
 1. **Danh mục truy vấn**: tick các mục cần lấy (Văn bản đến, Văn bản đi, Lịch công tác, Danh sách đơn vị, Góp ý, Việc VPUB, Cổng TTĐT, 31 mục CSDL Phường xã).

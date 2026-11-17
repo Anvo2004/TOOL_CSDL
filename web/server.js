@@ -8,7 +8,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { CATEGORIES, ITEMS } = require('./lib/catalog');
+const { CATEGORIES, ITEMS, SECTORS } = require('./lib/catalog');
 const { getToken, recordCallback } = require('./lib/lgsp');
 const store = require('./lib/store');
 const usage = require('./lib/usage');
@@ -193,6 +193,35 @@ async function handleUsage(url, res, session) {
   });
 }
 
+// Tra cứu toàn kho (lib/db.js): phạm vi xã theo tài khoản, thông tin cá nhân đã che.
+function recordQuery(url, session) {
+  const g = (k) => url.searchParams.get(k) || '';
+  const xa = g('xa');
+  return {
+    xaIds: xa ? [allowXa(session, xa)] : scopeIds(session),
+    sector: g('sector'), item: g('item'), q: g('q'), from: g('from'), to: g('to'),
+  };
+}
+
+async function handleRecords(url, res, session) {
+  if (!db.ready()) return send(res, 503, { error: 'Kho dữ liệu chưa bật trên máy chủ' });
+  const q = recordQuery(url, session);
+  if (url.pathname.endsWith('/export')) {
+    const r = db.search({ ...q, limit: 50000 });
+    const cfg = await store.loadConfig();
+    const xaName = (id) => (cfg.xa.find((x) => x.id === id) || {}).name || id;
+    const rows = r.rows.map((x) => ({
+      'Xã / phường': xaName(x.xa_id), 'Mục': (ITEMS.get(x.item_key) || {}).name || x.item_key,
+      'Ngành': (SECTORS.find((z) => z.id === x.sector) || {}).name || x.sector, 'Tiêu đề': x.title, 'Ngày': x.rec_date, ...x.data,
+    }));
+    return send(res, 200, toCsv(rows), {
+      'Content-Type': 'text/csv; charset=utf-8',
+      'Content-Disposition': `attachment; filename="tra-cuu_${new Date().toISOString().slice(0, 10)}.csv"`,
+    });
+  }
+  send(res, 200, db.search({ ...q, offset: url.searchParams.get('offset'), limit: Math.min(200, Number(url.searchParams.get('limit')) || 50) }));
+}
+
 async function handleResult(url, res, session) {
   const r = await store.loadResult(allowXa(session, url.searchParams.get('xa')), url.searchParams.get('item'));
   if (!r) return send(res, 404, { error: 'Chưa có dữ liệu, hãy truy vấn trước' });
@@ -312,6 +341,17 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && p === '/api/download') return await handleDownload(url, res, session);
     if (req.method === 'GET' && p === '/api/history') return send(res, 200, await store.readHistory(Number(url.searchParams.get('limit')) || 500, ids));
     if (req.method === 'GET' && p === '/api/stats') return send(res, 200, await store.latestStats(ids));
+    if (req.method === 'GET' && p === '/api/dash/overview') {
+      const xa = url.searchParams.get('xa');
+      return send(res, 200, { enabled: db.ready(), sectors: SECTORS, ...(db.overview(xa ? [allowXa(session, xa)] : ids) || {}) });
+    }
+    if (req.method === 'GET' && p === '/api/dash/sector') {
+      const xa = url.searchParams.get('xa');
+      const sector = url.searchParams.get('sector');
+      if (!SECTORS.some((z) => z.id === sector)) return send(res, 400, { error: 'Ngành không hợp lệ' });
+      return send(res, 200, { enabled: db.ready(), ...(db.sectorDash(sector, [...ITEMS.values()], xa ? [allowXa(session, xa)] : ids) || {}) });
+    }
+    if (req.method === 'GET' && (p === '/api/records' || p === '/api/records/export')) return await handleRecords(url, res, session);
     if (req.method === 'GET' && p === '/api/data/summary') {
       return send(res, 200, { store: isAdmin(session) ? db.stats() : { enabled: db.ready() }, items: db.summary(ids), syncs: db.recentSyncs(ids, 50) });
     }

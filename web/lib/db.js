@@ -49,6 +49,7 @@ function init(root) {
     CREATE INDEX IF NOT EXISTS records_item ON records (item_key, xa_id, removed_at);
     CREATE INDEX IF NOT EXISTS records_sector ON records (sector, xa_id);
     CREATE INDEX IF NOT EXISTS records_date ON records (xa_id, item_key, rec_date);
+    CREATE INDEX IF NOT EXISTS records_stats ON records (xa_id, item_key, sector, removed_at, rec_date, first_seen, last_seen);
     CREATE TABLE IF NOT EXISTS syncs (
       id INTEGER PRIMARY KEY, xa_id TEXT NOT NULL, item_key TEXT NOT NULL, at TEXT NOT NULL, source TEXT,
       total INTEGER, added INTEGER, updated INTEGER, removed INTEGER, unchanged INTEGER, note TEXT
@@ -247,6 +248,148 @@ function backupTo(dest) {
   return true;
 }
 
+// ---------- Dashboard & tra cứu ----------
+const PII = /(cccd|cmnd|dienthoai|sodienthoai|didong|sotaikhoan|so_tai_khoan|taikhoan|masothue|makh|email)/i;
+// Che thông tin cá nhân: chỉ giữ 3 ký tự cuối.
+const maskVal = (v) => {
+  const t = String(v ?? '');
+  return t.length <= 3 ? (t ? '•••' : t) : '•'.repeat(Math.min(8, t.length - 3)) + t.slice(-3);
+};
+function maskRow(row) {
+  const out = {};
+  for (const [k, v] of Object.entries(row)) out[k] = PII.test(k) && v != null && v !== '' && typeof v !== 'object' ? maskVal(v) : v;
+  return out;
+}
+
+// Trường không dùng để thống kê phân bố (định danh, cá nhân, văn bản tự do, ngày, số lượng).
+const NOT_DIM = /^(id|.*_id|.*Id|hoten|ho_ten|hotenchucoso|tenchucoso|chucoso|tennguoinhan|tennhanvien.*|nguoi.*|diachi.*|ngaysinh|namsinh|ma.*|ghichu|chitiet|mota.*|thongtin.*|noidung.*|trichyeu|trichYeu|ketluan|ten|tencoso|tencaulacbo|tenthietche|tentochuc|tensanpham|tencuochop|tenbanchihuy|sogiay.*|so.*|ngay.*|thoidiem.*|thoigian.*|user|page|per_page|limit|total.*|ketqua|success|files|hanxuly|hanXuLy|tongduno|giaingan|laisuat|dientich|soluong|.*sophong|.*sotang|.*sonhanvien|value|lydo.*|cancuphaply|bienban|xuphat|diadiem|hanhvi|chu.*|totruong.*|capnhat|id.*|numrecs|numpages)$/i;
+const FIELD_LABEL = {
+  gioitinh: 'Giới tính', tengioitinh: 'Giới tính', dantoc: 'Dân tộc', tendantoc: 'Dân tộc', thonto: 'Thôn / tổ', tenthonto: 'Thôn / tổ',
+  phuongxathonto: 'Thôn / tổ', phuongxa: 'Xã / phường', tenphuongxa: 'Xã / phường', trangthai: 'Trạng thái', tinhtrang: 'Tình trạng',
+  trangthaihoatdong: 'Trạng thái hoạt động', tentinhtrang: 'Tình trạng', loaitongiao: 'Tôn giáo', chungnhan: 'Chứng nhận',
+  loaihinhkinhdoanh: 'Loại hình kinh doanh', nganhnghekinhdoanh: 'Ngành nghề', tendoituong: 'Đối tượng', doituonguutien: 'Ưu tiên',
+  bhxh: 'BHXH', tenchucdanh: 'Chức danh', chucdanh: 'Chức danh', chucdanhkn: 'Chức danh kiêm nhiệm', tendoanhoi: 'Đoàn / hội',
+  nguonvon: 'Nguồn vốn', chuongtrinh: 'Chương trình', tenloai: 'Loại vật nuôi', loaihinhthietche: 'Loại thiết chế',
+  loaisanpham: 'Loại sản phẩm', nhiemky: 'Nhiệm kỳ', dangvien: 'Đảng viên', trinhdolyluanchinhtri: 'Lý luận chính trị',
+  trinhdochuyenmon: 'Trình độ chuyên môn', loaicoso: 'Loại cơ sở', loaihinhditich: 'Loại di tích',
+  biephapxuly: 'Biện pháp xử lý', loaihinhdichvu: 'Loại dịch vụ', loaihinhcoso: 'Loại hình cơ sở', diadiemhop: 'Địa điểm họp',
+  doKhan: 'Độ khẩn', doMat: 'Độ mật', kieuVanBan: 'Kiểu văn bản', tenCoQuanBanHanh: 'Cơ quan ban hành', coQuanBanHanhName: 'Cơ quan ban hành',
+  coQuanBanHanh: 'Cơ quan ban hành', tenphong: 'Phòng', tendonvi: 'Đơn vị', tiendo: 'Tiến độ', trangThai: 'Trạng thái',
+  hinhthucbanchihuy: 'Hình thức', loaibanchihuy: 'Loại ban chỉ huy', thanhvientotietkiemvavayvon: 'Tổ tiết kiệm & vay vốn', doanhoi: 'Đoàn / hội',
+  capcongnhan: 'Cấp công nhận', state: 'Trạng thái',
+};
+const cache = new Map();
+const cached = (key, ttlMs, fn) => {
+  const c = cache.get(key);
+  if (c && Date.now() - c.at < ttlMs) return c.v;
+  const v = fn();
+  cache.set(key, { at: Date.now(), v });
+  if (cache.size > 200) cache.delete(cache.keys().next().value);
+  return v;
+};
+const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+
+function overview(xaIds = null) {
+  if (!db) return null;
+  const w = inList('xa_id', xaIds);
+  const args = xaIds || [];
+  return cached(`ov|${xaIds || '*'}`, 60000, () => ({
+    bySectorXa: db.prepare(`SELECT xa_id, sector, COUNT(*) AS n FROM records WHERE removed_at IS NULL${w} GROUP BY xa_id, sector`).all(...args),
+    byItem: summary(xaIds),
+    docsMonthly: db.prepare(`SELECT xa_id, item_key, substr(rec_date, 1, 7) AS m, COUNT(*) AS n FROM records
+      WHERE item_key IN ('qlvbdh.vbden', 'qlvbdh.vbdi') AND removed_at IS NULL AND rec_date >= ?${w} GROUP BY xa_id, item_key, m ORDER BY m`)
+      .all(daysAgo(365).slice(0, 7) + '-01', ...args),
+    changesDaily: db.prepare(`SELECT substr(at, 1, 10) AS d, kind, COUNT(*) AS n FROM record_changes WHERE at >= ?${w} GROUP BY d, kind ORDER BY d`)
+      .all(daysAgo(30), ...args),
+    syncsDaily: db.prepare(`SELECT substr(at, 1, 10) AS d, COUNT(*) AS n, SUM(added) AS added, SUM(updated) AS updated, SUM(removed) AS removed
+      FROM syncs WHERE source <> 'import' AND at >= ?${w} GROUP BY d ORDER BY d`).all(daysAgo(30), ...args),
+  }));
+}
+
+// Phân bố theo các trường phân loại (giới tính, thôn tổ, trạng thái...) của một mục — tự nhận ra trường phù hợp.
+function breakdown(itemKey, xaIds = null, maxFields = 4) {
+  if (!db) return [];
+  return cached(`bd|${itemKey}|${xaIds || '*'}`, 300000, () => {
+    const w = inList('xa_id', xaIds);
+    const args = [itemKey, ...(xaIds || [])];
+    const sample = db.prepare(`SELECT data FROM records WHERE item_key = ? AND removed_at IS NULL${w} LIMIT 300`).all(...args);
+    if (!sample.length) return [];
+    const seen = new Map();
+    for (const r of sample) {
+      for (const [k, v] of Object.entries(JSON.parse(r.data))) {
+        if (NOT_DIM.test(k) || PII.test(k) || v == null || typeof v === 'object' || String(v).length > 80) continue;
+        seen.set(k, (seen.get(k) || 0) + 1);
+      }
+    }
+    const cands = [...seen.entries()].filter(([, filled]) => filled >= sample.length * 0.3).map(([k]) => k);
+    if (!cands.length) return [];
+    const counts = new Map(cands.map((k) => [k, new Map()]));
+    let total = 0;
+    for (const r of db.prepare(`SELECT data FROM records WHERE item_key = ? AND removed_at IS NULL${w}`).iterate(...args)) {
+      const o = JSON.parse(r.data);
+      total++;
+      for (const k of cands) {
+        const m = counts.get(k);
+        if (m.size > 200) continue; // quá nhiều giá trị: không phải trường phân loại
+        const v = o[k];
+        const key = v == null || typeof v === 'object' || String(v).trim() === '' ? null : String(v).trim();
+        m.set(key, (m.get(key) || 0) + 1);
+      }
+    }
+    const out = [];
+    for (const k of cands) {
+      const m = counts.get(k);
+      const empty = m.get(null) || 0;
+      const real = [...m.entries()].filter(([v]) => v !== null).map(([v, n]) => ({ v, n })).sort((a, b) => b.n - a.n);
+      if (real.length < 2 || real.length > 80) continue;
+      const rest = real.slice(10).reduce((a, x) => a + x.n, 0);
+      out.push({
+        field: k, label: FIELD_LABEL[k] || k, distinct: real.length, total,
+        values: [...real.slice(0, 10), ...(rest ? [{ v: 'Khác', n: rest }] : []), ...(empty ? [{ v: '(trống)', n: empty }] : [])],
+      });
+      if (out.length >= maxFields) break;
+    }
+    return out;
+  });
+}
+
+function sectorDash(sectorId, items, xaIds = null) {
+  if (!db) return null;
+  const w = inList('xa_id', xaIds);
+  const keys = items.filter((i) => i.sector === sectorId).map((i) => i.key);
+  if (!keys.length) return { counts: [], breakdowns: {} };
+  const counts = db.prepare(`SELECT xa_id, item_key, COUNT(*) AS n, MAX(last_seen) AS last_seen FROM records
+    WHERE removed_at IS NULL AND item_key IN (${keys.map(() => '?').join(',')})${w} GROUP BY xa_id, item_key`).all(...keys, ...(xaIds || []));
+  const withData = [...new Set(counts.map((c) => c.item_key))];
+  return { counts, breakdowns: Object.fromEntries(withData.map((k) => [k, breakdown(k, xaIds)])) };
+}
+
+// Tra cứu toàn kho: từ khóa không dấu (mọi từ phải có), lọc xã / ngành / mục / khoảng ngày.
+function search({ xaIds = null, sector, item, q, from, to, offset = 0, limit = 50, max = 50000 }) {
+  if (!db) return { total: 0, rows: [] };
+  const where = ['removed_at IS NULL'];
+  const args = [];
+  if (xaIds) {
+    where.push(`xa_id IN (${xaIds.map(() => '?').join(',') || "''"})`);
+    args.push(...xaIds);
+  }
+  if (sector) { where.push('sector = ?'); args.push(sector); }
+  if (item) { where.push('item_key = ?'); args.push(item); }
+  if (from) { where.push('rec_date >= ?'); args.push(from); }
+  if (to) { where.push('rec_date <= ?'); args.push(to); }
+  for (const t of fold(q || '').split(/\s+/).filter(Boolean).slice(0, 8)) {
+    where.push("search LIKE ? ESCAPE '!'");
+    args.push('%' + t.replace(/[!%_]/g, (c) => '!' + c) + '%');
+  }
+  const sqlWhere = where.join(' AND ');
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM records WHERE ${sqlWhere}`).get(...args).n;
+  const lim = Math.min(Math.max(1, Number(limit) || 50), max);
+  const rows = db.prepare(`SELECT xa_id, item_key, sector, title, rec_date, first_seen, updated_at, data FROM records WHERE ${sqlWhere}
+    ORDER BY rec_date IS NULL, rec_date DESC, item_key, title LIMIT ? OFFSET ?`).all(...args, lim, Math.max(0, Number(offset) || 0))
+    .map(({ data, ...r }) => ({ ...r, data: maskRow(JSON.parse(data)) }));
+  return { total, rows };
+}
+
 function stats() {
   if (!db) return { enabled: false, reason: sqlite ? 'chưa khởi tạo' : 'Node.js chưa có node:sqlite (cần Node ≥ 22.13)' };
   const one = (sql) => Object.values(db.prepare(sql).get())[0];
@@ -263,5 +406,5 @@ function stats() {
 
 module.exports = {
   available, ready, init, close, ingest, importLegacy, pruneChanges, summary, recentSyncs, backupTo, stats,
-  getMeta, setMeta, normDate, fold, normalize,
+  getMeta, setMeta, normDate, fold, normalize, overview, breakdown, sectorDash, search, maskRow,
 };

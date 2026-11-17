@@ -33,7 +33,7 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
       assert.equal(cb.status, 200);
       return reply(202, { requestId, requestStatus: 'ACCEPTED' });
     }
-    reply(200, { data: [{ id: 'fixture-1', name: 'Dữ liệu thử nghiệm', nested: { value: 'a,b' } }], total: 1 });
+    reply(200, { data: [{ id: 'fixture-1', name: 'Dữ liệu thử nghiệm', cccd: '049123456789', gioitinh: 'Nam', nested: { value: 'a,b' } }], total: 1 });
   });
   await new Promise(r => mock.listen(0, '127.0.0.1', r));
   const upstream = `http://127.0.0.1:${mock.address().port}`;
@@ -117,6 +117,20 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal(mine.length, ITEMS.size);
     assert.ok(mine.every(x => x.active === 1 && x.sector));
     assert.equal(d.syncs.length, Math.min(50, ITEMS.size));
+    // Dashboard tổng hợp, chuyên ngành và tra cứu toàn kho (CCCD được che).
+    const ov = (await api('/api/dash/overview')).body;
+    assert.ok(ov.sectors.length >= 8 && ov.bySectorXa.some(x => x.xa_id === 'fixture' && x.sector === 'vanhoagd'));
+    const sec = (await api('/api/dash/sector?sector=vanhoagd')).body;
+    assert.ok(sec.counts.some(c => c.item_key === 'csdlpx.TonGiao'));
+    assert.equal((await api('/api/dash/sector?sector=khong-co')).status, 400);
+    const found = (await api('/api/records?q=thu%20nghiem&item=csdlpx.TonGiao')).body;
+    assert.equal(found.total, 1);
+    assert.equal(found.rows[0].data.cccd, '••••••••789');
+    assert.equal((await api('/api/records?q=khong-ton-tai-xyz')).body.total, 0);
+    const csv = await api('/api/records/export?sector=vanhoagd');
+    assert.match(csv.headers.get('content-disposition'), /attachment/);
+    assert.match(csv.body, /•••789/);
+    assert.doesNotMatch(csv.body, /049123456789/);
     const b = (await api('/api/backups', 'POST')).body;
     assert.ok(b.files && b.files.includes('csdl.sqlite') && b.files.includes('config.json'), JSON.stringify(b));
     assert.equal((await api('/api/backups')).body.length, 1);
@@ -145,6 +159,10 @@ test('VPS deployment: authenticated API and all LGSP adapters with isolated mock
     assert.equal((await api('/api/query', 'POST', { xaId: 'other', itemKey: 'csdlpx.TonGiao' }, userCookie)).status, 403);
     assert.equal((await api('/api/result?xa=other&item=csdlpx.TonGiao', 'GET', undefined, userCookie)).status, 403);
     assert.equal((await api('/api/backups', 'GET', undefined, userCookie)).status, 403);
+    assert.equal((await api('/api/records?xa=other', 'GET', undefined, userCookie)).status, 403);
+    assert.equal((await api('/api/dash/overview?xa=other', 'GET', undefined, userCookie)).status, 403);
+    const mine = (await api('/api/records', 'GET', undefined, userCookie)).body;
+    assert.ok(mine.total > 0 && mine.rows.every(x => x.xa_id === 'fixture'));
     const own = (await api('/api/data/summary', 'GET', undefined, userCookie)).body;
     assert.equal(own.store.file, undefined);
     assert.ok(own.items.every(x => x.xa_id === own.items[0].xa_id));

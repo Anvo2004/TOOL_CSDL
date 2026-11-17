@@ -3,15 +3,16 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Đăng nhập – Truy vấn LGSP</title>
+  <title>Đăng nhập · Dữ liệu LGSP</title>
+  <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <style>
-    body { min-height: 100vh; display: grid; place-items: center; background: linear-gradient(160deg, #0f3f86, #1557b0 60%, #3b82f6); padding: 16px; }
-    .login { width: min(380px, 100%); background: #fff; border-radius: 14px; padding: 28px 26px; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }
+    body { min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 20% 10%, #3b82f6 0, transparent 40%), radial-gradient(circle at 85% 90%, #a855f7 0, transparent 40%), linear-gradient(160deg, #0b1736, #13224a); padding: 16px; }
+    .login { width: min(400px, 100%); background: #fff; border-radius: 18px; padding: 30px 28px; box-shadow: 0 20px 50px rgba(0, 0, 0, .25); }
     .login .brand { margin-bottom: 20px; }
     .login .brand h1 { font-size: 18px; color: var(--text); }
     .login .brand p { color: var(--muted); }
-    .login .logo { border: 1px solid var(--line); }
+    .login .brand { border: 0; }
     .login label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
     .login .input { padding: 9px 11px; }
     .login .btn { width: 100%; padding: 10px; margin-top: 6px; font-size: 15px; }
@@ -21,9 +22,9 @@
 <body>
   <form class="login" id="form">
     <div class="brand">
-      <div class="logo">DB</div>
+      <div class="logo"><svg class="i"><use href="icons.svg#i-database"/></svg></div>
       <div>
-        <h1>Truy vấn dữ liệu LGSP</h1>
+        <h1>Dữ liệu LGSP Đà Nẵng</h1>
         <p>Đăng nhập để tiếp tục</p>
       </div>
     </div>

@@ -65,6 +65,106 @@ const hasData = (id) => {
   if (p) p.remove();
 };
 
+// In giá trị của từng điểm lên trên đường (nhãn nền trắng, viền màu của đường). Bỏ số 0 nếu đường đặt hideZero.
+const valueLabels = {
+  id: 'valueLabels',
+  afterDatasetsDraw(c) {
+    const { ctx, chartArea } = c;
+    const h = 18;
+    ctx.save();
+    ctx.font = `600 11px ${Chart.defaults.font.family}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    // Gom nhãn theo từng ngày, giãn theo chiều dọc để không chồng lên nhau.
+    const cols = new Map();
+    c.data.datasets.forEach((ds, di) => {
+      if (!c.isDatasetVisible(di)) return;
+      c.getDatasetMeta(di).data.forEach((pt, i) => {
+        const v = ds.data[i];
+        if (v == null || (v === 0 && ds.hideZero)) return;
+        const text = fmtNum(v);
+        const w = ctx.measureText(text).width + 10;
+        if (!cols.has(i)) cols.set(i, []);
+        cols.get(i).push({ text, w, color: ds.borderColor, x: Math.min(chartArea.right - w / 2, Math.max(chartArea.left + w / 2, pt.x)), y: pt.y - 15 });
+      });
+    });
+    for (const labels of cols.values()) {
+      labels.sort((p, q) => p.y - q.y);
+      for (let k = 1; k < labels.length; k++) if (labels[k].y - labels[k - 1].y < h + 2) labels[k].y = labels[k - 1].y + h + 2;
+      const overflow = labels.length ? labels[labels.length - 1].y + h / 2 - chartArea.bottom : 0;
+      for (const l of labels) {
+        if (overflow > 0) l.y -= overflow;
+        l.y = Math.max(chartArea.top - 12 + h / 2, l.y);
+        ctx.fillStyle = '#ffffff';
+        ctx.strokeStyle = l.color;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (ctx.roundRect) ctx.roundRect(l.x - l.w / 2, l.y - h / 2, l.w, h, 6); else ctx.rect(l.x - l.w / 2, l.y - h / 2, l.w, h);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = l.color;
+        ctx.fillText(l.text, l.x, l.y + 0.5);
+      }
+    }
+    ctx.restore();
+  },
+};
+
+const areaFill = (rgb) => (c) => {
+  const { ctx, chartArea } = c.chart;
+  if (!chartArea) return `rgba(${rgb}, .12)`;
+  const g = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+  g.addColorStop(0, `rgba(${rgb}, .28)`);
+  g.addColorStop(1, `rgba(${rgb}, 0)`);
+  return g;
+};
+
+// Lượt gọi API theo ngày: 2 đường Truy vấn thành công / Lượt gọi lỗi, số liệu in trên từng điểm,
+// di chuột vào một ngày để xem đủ chi tiết (tổng lượt gọi, lượt thành công, bị chặn, truy vấn lỗi, tự động).
+function callsLineChart(id, dailyDesc) {
+  const daily = [...(dailyDesc || [])].reverse();
+  if (!daily.length) return noData(id);
+  hasData(id);
+  const line = (label, color, rgb, values, extra = {}) => ({
+    label, data: values, borderColor: color, backgroundColor: color, pointBackgroundColor: '#fff', pointBorderColor: color,
+    pointBorderWidth: 2, pointRadius: 4, pointHoverRadius: 6, borderWidth: 2.5, tension: 0.35, cubicInterpolationMode: 'monotone', fill: false, ...extra,
+    ...(rgb ? { fill: 'origin', backgroundColor: areaFill(rgb) } : {}),
+  });
+  chart(id, {
+    type: 'line',
+    data: {
+      labels: daily.map((d) => ddmm(d.day)),
+      datasets: [
+        line('Truy vấn thành công (xã × mục)', '#10b981', '16, 185, 129', daily.map((d) => d.tasksOk || 0)),
+        line('Lượt gọi lỗi', '#e11d48', null, daily.map((d) => d.err), { hideZero: true }),
+      ],
+    },
+    plugins: [valueLabels],
+    options: {
+      layout: { padding: { top: 22, left: 6, right: 14 } },
+      interaction: { mode: 'index', intersect: false },
+      scales: {
+        x: { grid: { display: false } },
+        y: { beginAtZero: true, grace: '12%', grid: { color: '#eef1f5' }, ticks: { callback: (v) => fmtNum(v) } },
+      },
+      plugins: {
+        legend: { position: 'bottom' },
+        tooltip: {
+          callbacks: {
+            title: (items) => `Ngày ${viDate(daily[items[0].dataIndex].day)} (7h → 7h hôm sau)`,
+            label: (c) => ` ${c.dataset.label}: ${fmtNum(c.parsed.y)}`,
+            footer: (items) => {
+              const d = daily[items[0].dataIndex];
+              return [`Tổng lượt gọi: ${fmtNum(d.calls)}`, `Lượt gọi thành công: ${fmtNum(d.ok)}`, `Bị LGSP chặn (429): ${fmtNum(d.throttled || 0)}`,
+                `Truy vấn lỗi: ${fmtNum(d.tasksErr || 0)}`, `Do lịch tự động: ${fmtNum(d.auto || 0)}`];
+            },
+          },
+        },
+      },
+    },
+  });
+}
+
 function kpi({ label, value, sub = '', icon, grad = 'g-blue' }) {
   return `<div class="kpi ${grad}"><div class="kpi-top"><span class="kpi-label">${esc(label)}</span><span class="kpi-ic">${ic(icon)}</span></div>
     <div><div class="kpi-value">${value}</div><div class="kpi-sub">${sub}</div></div></div>`;
@@ -201,22 +301,8 @@ async function loadDash() {
     });
   } else noData('c-docs', 'Chưa có văn bản đến/đi trong kho');
 
-  // Lượt gọi API 30 ngày
-  const daily = [...u.daily].reverse();
-  if (daily.length) {
-    hasData('c-calls');
-    chart('c-calls', {
-      type: 'bar',
-      data: {
-        labels: daily.map((d) => ddmm(d.day)),
-        datasets: [
-          { label: 'Thành công', data: daily.map((d) => d.ok), backgroundColor: '#10b981', borderRadius: 4, maxBarThickness: 28 },
-          { label: 'Lỗi', data: daily.map((d) => d.err), backgroundColor: '#f43f5e', borderRadius: 4, maxBarThickness: 28 },
-        ],
-      },
-      options: { ...gridOpts(true), plugins: { ...gridOpts(true).plugins, legend: { position: 'bottom' } } },
-    });
-  } else noData('c-calls');
+  // Lượt gọi API 30 ngày (biểu đồ đường, số liệu in trên từng điểm)
+  callsLineChart('c-calls', u.daily);
 
   // Biến động dữ liệu
   const days = [...new Set((ov.changesDaily || []).map((r) => r.d))].sort();
@@ -432,21 +518,7 @@ async function exportSearchExcel() {
 
 // ---------- Biểu đồ ở tab Tự động & hạn mức ----------
 window.onUsage = (u) => {
-  const daily = [...u.daily].reverse();
-  if (daily.length) {
-    hasData('c-usage');
-    chart('c-usage', {
-      type: 'bar',
-      data: {
-        labels: daily.map((d) => ddmm(d.day)),
-        datasets: [
-          { label: 'Thành công', data: daily.map((d) => d.ok), backgroundColor: '#3b82f6', borderRadius: 4, maxBarThickness: 26 },
-          { label: 'Lỗi', data: daily.map((d) => d.err), backgroundColor: '#f43f5e', borderRadius: 4, maxBarThickness: 26 },
-        ],
-      },
-      options: { ...gridOpts(true), plugins: { ...gridOpts(true).plugins, legend: { position: 'bottom' } } },
-    });
-  } else noData('c-usage');
+  callsLineChart('c-usage', u.daily);
   const byXa = (u.byXa || []).filter((x) => x.calls);
   if (byXa.length) {
     hasData('c-usage-xa');
